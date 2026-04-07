@@ -1,0 +1,4 @@
+.vercel
+service-account.json
+
+try { $proc = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue; if ($proc) { Stop-Process -Id $proc.OwningProcess -Force -ErrorAction SilentlyContinue } } catch {}; Set-Location backend; & ".\venv\Scripts\python.exe" -m uvicorn server:app --host 0.0.0.0 --port 8000

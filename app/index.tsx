@@ -1,0 +1,805 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Text,
+  View,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Modal,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { registerMobilePushDevice } from '../lib/mobileNotifications';
+import { getBackendBaseUrl } from '../lib/backendUrl';
+
+const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
+const MY_ENTRIES_KEY = '@my_queue_entries';
+const JOIN_HISTORY_KEY = '@join_history';
+const CUSTOMER_PUSH_TOKEN_KEY = '@customer_push_token';
+const MAX_JOINS = 2;
+const COOLDOWN_MIN = 10;
+
+interface Shop {
+  shopId: string;
+  name: string;
+  isOpen: boolean;
+  openTime: string;
+  closeTime: string;
+}
+
+interface BarberInfo {
+  id: string;
+  name: string;
+  chairNumber: number;
+  isActive: boolean;
+}
+
+interface QueueStatus {
+  id: string;
+  tokenNumber: number;
+  name: string;
+  status: string;
+  servingNow: number[];
+  peopleAhead: number;
+  currentlyServing: number;
+  shopId?: string;
+  expiresAt?: string;
+  serviceStartedAt?: string;
+}
+
+interface MyEntry {
+  id: string;
+  name: string;
+  tokenNumber: number;
+  shopId: string;
+  shopName: string;
+}
+
+export default function Index() {
+  // Shop selection state
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
+  const [loadingShops, setLoadingShops] = useState(true);
+
+  // Barber selection state (optional)
+  const [barbers, setBarbers] = useState<BarberInfo[]>([]);
+  const [selectedBarber, setSelectedBarber] = useState<string | null>(null);
+  const [showBarberPicker, setShowBarberPicker] = useState(false);
+
+  // Queue state
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [joined, setJoined] = useState(false);
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
+  const [myEntries, setMyEntries] = useState<MyEntry[]>([]);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  useEffect(() => {
+    fetchShops();
+    loadMyEntries();
+  }, []);
+
+  useEffect(() => {
+    let interval: any;
+    if (joined && queueStatus) {
+      interval = setInterval(refreshStatus, 15000); // Performance: 15s polling
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [joined, queueStatus]);
+
+  // Fetch all shops
+  const fetchShops = async () => {
+    try {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/admin/shops`);
+      if (res.ok) {
+        const data = await res.json();
+        setShops(data.shops || []);
+      }
+    } catch (e) {
+      console.error('Fetch shops error:', e);
+    } finally {
+      setLoadingShops(false);
+    }
+  };
+
+  const loadMyEntries = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(MY_ENTRIES_KEY);
+      let entries: MyEntry[] = stored ? JSON.parse(stored) : [];
+
+      // Validate entries - remove completed/left
+      const validEntries: MyEntry[] = [];
+      for (const entry of entries) {
+        try {
+          const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/status/${entry.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'waiting' || data.status === 'serving') {
+              validEntries.push(entry);
+            }
+          }
+        } catch (e) { /* skip */ }
+      }
+
+      setMyEntries(validEntries);
+      await AsyncStorage.setItem(MY_ENTRIES_KEY, JSON.stringify(validEntries));
+
+      // Auto-show the first active entry
+      if (validEntries.length > 0 && !joined) {
+        await viewEntry(validEntries[0]);
+      }
+    } catch (e) {
+      console.error('Load entries error:', e);
+    }
+  };
+
+  const saveMyEntries = async (entries: MyEntry[]) => {
+    setMyEntries(entries);
+    await AsyncStorage.setItem(MY_ENTRIES_KEY, JSON.stringify(entries));
+  };
+
+  const viewEntry = async (entry: MyEntry) => {
+    try {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/status/${entry.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'waiting' || data.status === 'serving') {
+          setQueueStatus({ ...data, shopId: entry.shopId });
+          setSelectedShop({ shopId: entry.shopId, name: entry.shopName, isOpen: true, openTime: '', closeTime: '' });
+          setJoined(true);
+          setErrorMessage('');
+        }
+      }
+    } catch (e) {
+      console.error('View entry error:', e);
+    }
+  };
+
+  const handleSelectShop = async (shop: Shop) => {
+    if (!shop.isOpen) {
+      setErrorMessage(`${shop.name} is currently closed`);
+      return;
+    }
+    setSelectedShop(shop);
+    setErrorMessage('');
+    
+    // Fetch barbers for this shop
+    try {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${shop.shopId}/barbers`);
+      if (res.ok) {
+        const data = await res.json();
+        setBarbers(data.barbers || []);
+      }
+    } catch (e) {
+      console.error('Fetch barbers error:', e);
+    }
+  };
+
+  const handleBackToShops = () => {
+    setSelectedShop(null);
+    setName('');
+    setErrorMessage('');
+    setBarbers([]);
+    setSelectedBarber(null);
+  };
+
+  const handleJoinQueue = async () => {
+    if (!selectedShop) return;
+    setErrorMessage('');
+    
+    if (!name.trim()) {
+      setErrorMessage('Please enter your name');
+      return;
+    }
+
+    // Rate limit check
+    try {
+      const historyStr = await AsyncStorage.getItem(JOIN_HISTORY_KEY);
+      let history = historyStr ? JSON.parse(historyStr) : [];
+      const now = new Date();
+      const cutoff = new Date(now.getTime() - COOLDOWN_MIN * 60 * 1000);
+      history = history.filter((ts: string) => new Date(ts) > cutoff);
+      if (history.length >= MAX_JOINS) {
+        const oldest = new Date(history[0]);
+        const remaining = Math.ceil(COOLDOWN_MIN - (now.getTime() - oldest.getTime()) / 60000);
+        setErrorMessage(`Joined ${MAX_JOINS} times already. Wait ${remaining} min.`);
+        return;
+      }
+    } catch (e) { /* ignore */ }
+
+    setLoading(true);
+    try {
+      const joinUrl = `${EXPO_PUBLIC_BACKEND_URL}/api/queue/join`;
+      const joinBody = {
+        name: name.trim(),
+        shopId: selectedShop.shopId,
+        barberId: selectedBarber || null
+      };
+      console.log(`[JOIN] Sending join request to: ${joinUrl}`);
+      console.log(`[JOIN] Body: ${JSON.stringify(joinBody)}`);
+
+      const res = await fetch(joinUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(joinBody),
+      });
+
+      console.log(`[JOIN] Response status: ${res.status}`);
+
+      if (res.ok) {
+        const data = await res.json();
+        console.log(`[JOIN] Join success: id=${data.id}, token=#${data.tokenNumber}, shopId=${data.shopId}`);
+
+        try {
+          console.log(`[FCM] Customer joined queue: entryId=${data.id}, token=#${data.tokenNumber}, shop=${selectedShop.shopId}`);
+          console.log('[FCM] Registering customer device for push notifications...');
+          const pushResult = await registerMobilePushDevice({
+            userType: 'customer',
+            shopId: selectedShop.shopId,
+            entryId: data.id,
+            backendUrl: EXPO_PUBLIC_BACKEND_URL,
+          });
+
+          if (pushResult.success && pushResult.token) {
+            await AsyncStorage.setItem(CUSTOMER_PUSH_TOKEN_KEY, pushResult.token);
+            console.log(`[FCM] Customer push registered! Token saved. Will receive notification when it's their turn.`);
+          } else {
+            console.warn('[FCM] Customer push registration skipped/failed:', pushResult.reason);
+          }
+
+          // notification logs now in console
+        } catch (pushError) {
+          console.error('Customer push registration failed:', pushError);
+          // notification logs now in console
+        }
+
+        setQueueStatus({ ...data, shopId: selectedShop.shopId });
+        setJoined(true);
+        
+        // Save to my entries
+        const newEntry: MyEntry = { 
+          id: data.id, 
+          name: data.name, 
+          tokenNumber: data.tokenNumber,
+          shopId: selectedShop.shopId,
+          shopName: selectedShop.name
+        };
+        const updated = [...myEntries, newEntry];
+        await saveMyEntries(updated);
+        
+        // Update join history
+        const historyStr = await AsyncStorage.getItem(JOIN_HISTORY_KEY);
+        let history = historyStr ? JSON.parse(historyStr) : [];
+        history.push(new Date().toISOString());
+        await AsyncStorage.setItem(JOIN_HISTORY_KEY, JSON.stringify(history));
+      } else if (res.status === 403) {
+        setErrorMessage('Shop is currently closed');
+      } else {
+        setErrorMessage('Failed to join. Try again.');
+      }
+    } catch (e) {
+      setErrorMessage('Network error. Check connection.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshStatus = async () => {
+    if (!queueStatus) return;
+    try {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/status/${queueStatus.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setQueueStatus({ ...data, shopId: queueStatus.shopId });
+        
+        if (data.status === 'completed' || data.status === 'left' || data.status === 'skipped' || data.status === 'expired') {
+          // Remove from my entries
+          const updated = myEntries.filter(e => e.id !== data.id);
+          await saveMyEntries(updated);
+          
+          if (updated.length > 0) {
+            await viewEntry(updated[0]);
+          } else {
+            setJoined(false);
+            setQueueStatus(null);
+            setSelectedShop(null);
+          }
+        }
+      }
+    } catch (e) { console.error('Refresh error:', e); }
+  };
+
+  const confirmLeaveQueue = async () => {
+    if (!queueStatus) return;
+    try {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${queueStatus.id}/leave`, { method: 'PATCH' });
+      if (res.ok) {
+        const updated = myEntries.filter(e => e.id !== queueStatus.id);
+        await saveMyEntries(updated);
+        setShowLeaveModal(false);
+        
+        if (updated.length > 0) {
+          await viewEntry(updated[0]);
+        } else {
+          setJoined(false);
+          setQueueStatus(null);
+          setSelectedShop(null);
+          setName('');
+        }
+      }
+    } catch (e) { console.error('Leave error:', e); }
+  };
+
+  const handleNewEntry = () => {
+    setJoined(false);
+    setQueueStatus(null);
+    setSelectedShop(null);
+    setName('');
+  };
+
+  // Loading state
+  if (loadingShops) {
+    return (
+      <View style={st.center}>
+        <ActivityIndicator size="large" color="#007BFF" />
+        <Text style={st.loadingText}>Loading shops...</Text>
+      </View>
+    );
+  }
+
+  // STEP 1: Shop Selection Screen
+  if (!selectedShop && !joined) {
+    return (
+      <ScrollView style={st.container} contentContainerStyle={st.scrollPad}>
+        <View style={st.header}>
+          <Text style={st.brand}>Quevix</Text>
+          <Text style={st.brandSub}>Smart Queue Platform</Text>
+        </View>
+
+        <Text style={st.selectTitle}>Select Your Shop</Text>
+        
+        {errorMessage ? (
+          <View style={st.errorBox}>
+            <Text style={st.errorText}>{errorMessage}</Text>
+          </View>
+        ) : null}
+
+        {shops.length > 0 ? (
+          <View style={st.shopsList}>
+            {shops.map((shop) => (
+              <TouchableOpacity
+                key={shop.shopId}
+                style={[st.shopCard, !shop.isOpen && st.shopCardClosed]}
+                onPress={() => handleSelectShop(shop)}
+                disabled={!shop.isOpen}
+              >
+                <View style={st.shopCardContent}>
+                  <Text style={st.shopName}>{shop.name}</Text>
+                  <View style={[st.statusBadge, shop.isOpen ? st.statusOpen : st.statusClosed]}>
+                    <Text style={st.statusText}>{shop.isOpen ? 'OPEN' : 'CLOSED'}</Text>
+                  </View>
+                </View>
+                {shop.isOpen ? (
+                  <Text style={st.shopHours}>Hours: {shop.openTime} - {shop.closeTime}</Text>
+                ) : (
+                  <Text style={st.shopClosedMsg}>Currently not accepting customers</Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <View style={st.emptyBox}>
+            <Text style={st.emptyText}>No shops available</Text>
+          </View>
+        )}
+
+        {/* Show active entries */}
+        {myEntries.length > 0 && (
+          <View style={st.activeSection}>
+            <Text style={st.activeSectionTitle}>Your Active Tokens</Text>
+            {myEntries.map((entry) => (
+              <TouchableOpacity
+                key={entry.id}
+                style={st.activeEntry}
+                onPress={() => viewEntry(entry)}
+              >
+                <Text style={st.activeToken}>#{entry.tokenNumber}</Text>
+                <View>
+                  <Text style={st.activeName}>{entry.name}</Text>
+                  <Text style={st.activeShop}>{entry.shopName}</Text>
+                </View>
+                <Text style={st.viewBtn}>View →</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Notification logs now in console */}
+      </ScrollView>
+    );
+  }
+
+  // STEP 2: Join Queue Form (after shop selected)
+  if (selectedShop && !joined) {
+    return (
+      <ScrollView style={st.container} contentContainerStyle={st.scrollPad}>
+        <TouchableOpacity style={st.backBtn} onPress={handleBackToShops}>
+          <Text style={st.backBtnText}>← Back to Shops</Text>
+        </TouchableOpacity>
+
+        <View style={st.selectedShopCard}>
+          <Text style={st.selectedShopName}>{selectedShop.name}</Text>
+          <Text style={st.selectedShopHours}>Hours: {selectedShop.openTime} - {selectedShop.closeTime}</Text>
+        </View>
+
+        <View style={st.formCard}>
+          <Text style={st.formTitle}>Join Queue</Text>
+          <Text style={st.formLabel}>Your Name</Text>
+          <TextInput
+            style={st.input}
+            value={name}
+            onChangeText={(t) => { setName(t); setErrorMessage(''); }}
+            placeholder="Enter your name"
+            placeholderTextColor="#999"
+            maxLength={50}
+          />
+          
+          {/* Optional Barber Selection */}
+          {barbers.length > 0 && (
+            <View style={st.barberSection}>
+              <Text style={st.formLabel}>Prefer a specific barber? (Optional)</Text>
+              <TouchableOpacity 
+                style={st.barberDropdown}
+                onPress={() => setShowBarberPicker(true)}
+              >
+                <Text style={st.barberDropdownText}>
+                  {selectedBarber 
+                    ? barbers.find(b => b.id === selectedBarber)?.name || 'Select Barber'
+                    : 'Any Available Barber'}
+                </Text>
+                <Text style={st.barberDropdownArrow}>▼</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          {errorMessage ? <Text style={st.formError}>{errorMessage}</Text> : null}
+          <TouchableOpacity
+            style={[st.joinBtn, loading && st.joinBtnDisabled]}
+            onPress={handleJoinQueue}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={st.joinBtnText}>JOIN QUEUE</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Show other active entries */}
+        {myEntries.length > 0 && (
+          <View style={st.activeSection}>
+            <Text style={st.activeSectionTitle}>Your Active Tokens</Text>
+            {myEntries.map((entry) => (
+              <TouchableOpacity
+                key={entry.id}
+                style={st.activeEntry}
+                onPress={() => viewEntry(entry)}
+              >
+                <Text style={st.activeToken}>#{entry.tokenNumber}</Text>
+                <View>
+                  <Text style={st.activeName}>{entry.name}</Text>
+                  <Text style={st.activeShop}>{entry.shopName}</Text>
+                </View>
+                <Text style={st.viewBtn}>View →</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Notification logs now in console */}
+
+        {/* Barber Picker Modal */}
+        <Modal visible={showBarberPicker} transparent animationType="fade">
+          <View style={st.overlay}>
+            <View style={st.pickerBox}>
+              <Text style={st.pickerTitle}>Select Barber</Text>
+              <ScrollView style={st.pickerList}>
+                <TouchableOpacity 
+                  style={[st.pickerItem, !selectedBarber && st.pickerItemSelected]}
+                  onPress={() => { setSelectedBarber(null); setShowBarberPicker(false); }}
+                >
+                  <Text style={[st.pickerItemText, !selectedBarber && st.pickerItemTextSelected]}>
+                    Any Available Barber
+                  </Text>
+                </TouchableOpacity>
+                {barbers.filter(b => b.isActive).map((b) => (
+                  <TouchableOpacity 
+                    key={b.id}
+                    style={[st.pickerItem, selectedBarber === b.id && st.pickerItemSelected]}
+                    onPress={() => { setSelectedBarber(b.id); setShowBarberPicker(false); }}
+                  >
+                    <Text style={[st.pickerItemText, selectedBarber === b.id && st.pickerItemTextSelected]}>
+                      {b.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={st.pickerCancel} onPress={() => setShowBarberPicker(false)}>
+                <Text style={st.pickerCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </ScrollView>
+    );
+  }
+
+  // STEP 3: Queue Status (after joined)
+  if (joined && queueStatus) {
+    const isServing = queueStatus.status === 'serving';
+    const servingText = queueStatus.servingNow?.length > 0 
+      ? `Now Serving: #${queueStatus.servingNow.join(', #')}`
+      : 'No one being served';
+
+    // Calculate remaining timer for serving customers (expiresAt is UTC)
+    let timerDisplay = null;
+    let timerMinutes = 0;
+    if (isServing && queueStatus.expiresAt && !queueStatus.serviceStartedAt) {
+      // Add 'Z' to make it parse as UTC
+      const expiresAtStr = queueStatus.expiresAt.endsWith('Z') ? queueStatus.expiresAt : queueStatus.expiresAt + 'Z';
+      const expiresAt = new Date(expiresAtStr);
+      const now = new Date();
+      const diffMs = expiresAt.getTime() - now.getTime();
+      timerMinutes = Math.max(0, Math.ceil(diffMs / 60000));
+      if (timerMinutes > 0) {
+        timerDisplay = `${timerMinutes} min to arrive`;
+      } else {
+        timerDisplay = 'Time expired!';
+      }
+    }
+
+    return (
+      <ScrollView style={st.container}>
+        {/* Shop Name Header */}
+        <View style={st.statusHeader}>
+          <Text style={st.statusShopName}>{selectedShop?.name || 'Queue'}</Text>
+        </View>
+
+        {/* Token Card */}
+        <View style={[st.tokenCard, isServing && st.tokenCardServing]}>
+          <Text style={st.tokenLabel}>Your Token</Text>
+          <Text style={st.tokenNumber}>#{queueStatus.tokenNumber}</Text>
+          <Text style={st.tokenName}>{queueStatus.name}</Text>
+          
+          <View style={[st.statusIndicator, isServing ? st.statusServing : st.statusWaiting]}>
+            <Text style={[st.statusIndicatorText, isServing && st.statusIndicatorTextServing]}>
+              {isServing ? "IT'S YOUR TURN!" : 'WAITING'}
+            </Text>
+          </View>
+
+          {isServing ? (
+            <View style={st.servingInfo}>
+              <Text style={st.goNowText}>Please proceed to the shop now!</Text>
+              
+              {/* Timer Display */}
+              {timerDisplay && (
+                <View style={[st.timerBox, timerMinutes === 0 && st.timerBoxExpired]}>
+                  <Text style={st.timerIcon}>⏱</Text>
+                  <Text style={[st.timerText, timerMinutes === 0 && st.timerTextExpired]}>
+                    {timerDisplay}
+                  </Text>
+                </View>
+              )}
+              
+              {queueStatus.serviceStartedAt && (
+                <View style={st.serviceStartedBox}>
+                  <Text style={st.serviceStartedText}>✓ Service in progress</Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={st.waitInfo}>
+              <Text style={st.waitText}>{queueStatus.peopleAhead} people ahead of you</Text>
+              <Text style={st.servingText}>{servingText}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Actions */}
+        <View style={st.actions}>
+          <TouchableOpacity style={st.leaveBtn} onPress={() => setShowLeaveModal(true)}>
+            <Text style={st.leaveBtnText}>Leave Queue</Text>
+          </TouchableOpacity>
+
+          {myEntries.length < MAX_JOINS && (
+            <TouchableOpacity style={st.newEntryBtn} onPress={handleNewEntry}>
+              <Text style={st.newEntryBtnText}>Join Another Shop</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Other Active Entries */}
+        {myEntries.length > 1 && (
+          <View style={st.otherEntries}>
+            <Text style={st.otherEntriesTitle}>Your Other Tokens</Text>
+            {myEntries.filter(e => e.id !== queueStatus.id).map((entry) => (
+              <TouchableOpacity
+                key={entry.id}
+                style={st.otherEntry}
+                onPress={() => viewEntry(entry)}
+              >
+                <Text style={st.otherToken}>#{entry.tokenNumber}</Text>
+                <Text style={st.otherShop}>{entry.shopName}</Text>
+                <Text style={st.viewBtn}>View →</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Notification logs now in console */}
+
+        {/* Leave Modal */}
+        <Modal visible={showLeaveModal} transparent animationType="fade">
+          <View style={st.overlay}>
+            <View style={st.modalBox}>
+              <Text style={st.modalTitle}>Leave Queue?</Text>
+              <Text style={st.modalMsg}>
+                Are you sure you want to leave? You'll lose your spot in line.
+              </Text>
+              <View style={st.modalBtns}>
+                <TouchableOpacity style={st.modalCancel} onPress={() => setShowLeaveModal(false)}>
+                  <Text style={st.modalCancelText}>Stay</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={st.modalConfirm} onPress={confirmLeaveQueue}>
+                  <Text style={st.modalConfirmText}>Leave</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </ScrollView>
+    );
+  }
+
+  return null;
+}
+
+const st = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA' },
+  scrollPad: { padding: 16, paddingTop: 56 },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#6C757D' },
+
+  header: { marginBottom: 24 },
+  brand: { fontSize: 32, fontWeight: '800', color: '#1A1A2E' },
+  brandSub: { fontSize: 14, color: '#6C757D', marginTop: 4 },
+
+  selectTitle: { fontSize: 22, fontWeight: '700', color: '#1A1A2E', marginBottom: 16 },
+
+  errorBox: { backgroundColor: '#F8D7DA', padding: 12, borderRadius: 10, marginBottom: 16 },
+  errorText: { color: '#721C24', fontSize: 14 },
+
+  shopsList: { gap: 12 },
+  shopCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E9ECEF' },
+  shopCardClosed: { backgroundColor: '#F8F9FA', opacity: 0.7 },
+  shopCardContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  shopName: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  statusOpen: { backgroundColor: '#D4EDDA' },
+  statusClosed: { backgroundColor: '#F8D7DA' },
+  statusText: { fontSize: 12, fontWeight: '700' },
+  shopHours: { fontSize: 13, color: '#6C757D' },
+  shopClosedMsg: { fontSize: 13, color: '#DC3545', fontStyle: 'italic' },
+
+  emptyBox: { backgroundColor: '#fff', borderRadius: 12, padding: 32, alignItems: 'center' },
+  emptyText: { fontSize: 16, color: '#6C757D' },
+
+  activeSection: { marginTop: 24 },
+  activeSectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
+  activeEntry: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E7F3FF', padding: 14, borderRadius: 10, marginBottom: 8 },
+  activeToken: { fontSize: 20, fontWeight: '800', color: '#007BFF', width: 60 },
+  activeName: { fontSize: 15, fontWeight: '600', color: '#1A1A2E' },
+  activeShop: { fontSize: 12, color: '#6C757D' },
+  viewBtn: { marginLeft: 'auto', color: '#007BFF', fontWeight: '600' },
+
+  backBtn: { marginBottom: 16 },
+  backBtnText: { fontSize: 16, color: '#007BFF', fontWeight: '600' },
+
+  selectedShopCard: { backgroundColor: '#007BFF', borderRadius: 12, padding: 20, marginBottom: 20 },
+  selectedShopName: { fontSize: 22, fontWeight: '700', color: '#fff' },
+  selectedShopHours: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+
+  formCard: { backgroundColor: '#fff', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E9ECEF' },
+  formTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 16 },
+  formLabel: { fontSize: 15, fontWeight: '600', color: '#495057', marginBottom: 8 },
+  input: { borderWidth: 1, borderColor: '#CED4DA', borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 12 },
+  formError: { color: '#DC3545', fontSize: 13, marginBottom: 12 },
+  joinBtn: { backgroundColor: '#28A745', padding: 16, borderRadius: 10, alignItems: 'center' },
+  joinBtnDisabled: { backgroundColor: '#6C757D' },
+  joinBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // Barber selection styles
+  barberSection: { marginTop: 8, marginBottom: 12 },
+  barberDropdown: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#CED4DA', borderRadius: 8, padding: 14 },
+  barberDropdownText: { fontSize: 15, color: '#1A1A2E' },
+  barberDropdownArrow: { fontSize: 10, color: '#6C757D' },
+
+  // Barber picker modal styles
+  pickerBox: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%', maxWidth: 360, maxHeight: '70%' },
+  pickerTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginBottom: 16, textAlign: 'center' },
+  pickerList: { maxHeight: 300 },
+  pickerItem: { padding: 14, borderRadius: 8, marginBottom: 8, backgroundColor: '#F8F9FA' },
+  pickerItemSelected: { backgroundColor: '#007BFF' },
+  pickerItemText: { fontSize: 15, color: '#1A1A2E' },
+  pickerItemTextSelected: { color: '#fff', fontWeight: '600' },
+  pickerCancel: { padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#F0F0F0', marginTop: 12 },
+  pickerCancelText: { color: '#333', fontSize: 15, fontWeight: '600' },
+
+  statusHeader: { backgroundColor: '#007BFF', padding: 20, paddingTop: 56 },
+  statusShopName: { fontSize: 20, fontWeight: '700', color: '#fff', textAlign: 'center' },
+
+  tokenCard: { margin: 16, backgroundColor: '#fff', borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 2, borderColor: '#E9ECEF' },
+  tokenCardServing: { backgroundColor: '#D4EDDA', borderColor: '#28A745' },
+  tokenLabel: { fontSize: 14, color: '#6C757D', marginBottom: 8 },
+  tokenNumber: { fontSize: 64, fontWeight: '800', color: '#007BFF' },
+  tokenName: { fontSize: 18, color: '#1A1A2E', marginTop: 8 },
+  statusIndicator: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 8, borderRadius: 20 },
+  statusWaiting: { backgroundColor: '#FFF3CD' },
+  statusServing: { backgroundColor: '#28A745' },
+  statusIndicatorText: { fontSize: 14, fontWeight: '700', color: '#856404' },
+  statusIndicatorTextServing: { color: '#fff' },
+  servingInfo: { alignItems: 'center', marginTop: 12 },
+  goNowText: { fontSize: 15, color: '#155724', fontWeight: '600', textAlign: 'center' },
+  
+  // Timer styles
+  timerBox: { marginTop: 16, backgroundColor: '#FFF3CD', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderColor: '#FFE69C' },
+  timerBoxExpired: { backgroundColor: '#F8D7DA', borderColor: '#F5C6CB' },
+  timerIcon: { fontSize: 24, marginRight: 10 },
+  timerText: { fontSize: 20, fontWeight: '800', color: '#856404' },
+  timerTextExpired: { color: '#721C24' },
+  serviceStartedBox: { marginTop: 12, backgroundColor: '#D4EDDA', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  serviceStartedText: { fontSize: 14, color: '#155724', fontWeight: '600' },
+  
+  waitInfo: { marginTop: 16, alignItems: 'center' },
+  waitText: { fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
+  servingText: { fontSize: 13, color: '#6C757D', marginTop: 4 },
+
+  actions: { marginHorizontal: 16, marginTop: 16, gap: 12 },
+  leaveBtn: { backgroundColor: '#F8D7DA', padding: 14, borderRadius: 10, alignItems: 'center' },
+  leaveBtnText: { color: '#DC3545', fontSize: 15, fontWeight: '600' },
+  newEntryBtn: { backgroundColor: '#E7F3FF', padding: 14, borderRadius: 10, alignItems: 'center' },
+  newEntryBtnText: { color: '#007BFF', fontSize: 15, fontWeight: '600' },
+
+  otherEntries: { marginHorizontal: 16, marginTop: 24 },
+  otherEntriesTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
+  otherEntry: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 12, borderRadius: 8, marginBottom: 8 },
+  otherToken: { fontSize: 18, fontWeight: '700', color: '#007BFF', width: 50 },
+  otherShop: { fontSize: 14, color: '#6C757D', flex: 1 },
+
+  logCard: { marginHorizontal: 16, marginTop: 20, marginBottom: 12, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E9ECEF', padding: 12 },
+  logHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  logTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A2E' },
+  logActions: { flexDirection: 'row', gap: 8 },
+  logActionBtn: { backgroundColor: '#E7F3FF', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  logActionBtnText: { color: '#007BFF', fontSize: 12, fontWeight: '700' },
+  logClearBtn: { backgroundColor: '#F8D7DA', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  logClearBtnText: { color: '#B4232A', fontSize: 12, fontWeight: '700' },
+  logHint: { marginTop: 8, marginBottom: 10, color: '#6C757D', fontSize: 12 },
+  logEmpty: { color: '#6C757D', fontSize: 12 },
+  logItem: { backgroundColor: '#F8F9FA', borderRadius: 8, padding: 8, marginBottom: 8 },
+  logMeta: { fontSize: 11, color: '#6C757D', fontWeight: '600' },
+  logMessage: { fontSize: 13, color: '#1A1A2E', marginTop: 2 },
+  logDetails: { fontSize: 11, color: '#495057', marginTop: 4 },
+
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalBox: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 8, textAlign: 'center' },
+  modalMsg: { fontSize: 15, color: '#6C757D', marginBottom: 20, textAlign: 'center' },
+  modalBtns: { flexDirection: 'row', gap: 12 },
+  modalCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#28A745' },
+  modalConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#DC3545' },
+  modalCancelText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  modalConfirmText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+});

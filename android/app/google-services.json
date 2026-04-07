@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1032369863308",
+    "project_id": "quevix-upgrade",
+    "storage_bucket": "quevix-upgrade.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1032369863308:android:670bd653747929517219a9",
+        "android_client_info": {
+          "package_name": "app.emergent.salonqueue13480893b7"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAehsCTlDHSqPToaQ4ag1smO-1bx9tRwio"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

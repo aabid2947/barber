@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Queue - Join Now</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --danger: #ef4444;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container { width: 100%; max-width: 420px; }
+        
+        .card {
+            background: white;
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            padding: 28px 24px;
+            text-align: center;
+            color: white;
+        }
+        
+        .shop-name { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+        .tagline { font-size: 14px; opacity: 0.9; }
+        
+        .content { padding: 28px 24px; }
+        
+        .shop-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        .shop-status.open { background: #ecfdf5; color: #065f46; }
+        .shop-status.closed { background: #fef2f2; color: #991b1b; }
+        
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .shop-status.open .status-dot { background: var(--success); }
+        .shop-status.closed .status-dot { background: var(--danger); }
+        
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
+        .queue-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .info-card {
+            background: var(--gray-50);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+        }
+        
+        .info-label {
+            font-size: 11px;
+            color: var(--gray-500);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        
+        .info-value { font-size: 22px; font-weight: 700; color: var(--gray-800); }
+        .info-value.serving { color: var(--success); }
+        
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 14px; font-weight: 500; color: var(--gray-700); margin-bottom: 6px; }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px 14px;
+            font-size: 16px;
+            border: 2px solid var(--gray-200);
+            border-radius: 10px;
+            outline: none;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        
+        .form-input:focus { border-color: var(--primary); }
+        .form-input::placeholder { color: var(--gray-400); }
+        
+        .btn {
+            width: 100%;
+            padding: 14px 24px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3); }
+        .btn-primary:disabled { background: var(--gray-300); cursor: not-allowed; transform: none; box-shadow: none; }
+        
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        
+        .token-display {
+            text-align: center;
+            padding: 24px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border-radius: 16px;
+            color: white;
+            margin-bottom: 20px;
+        }
+        
+        .token-label { font-size: 13px; opacity: 0.9; margin-bottom: 6px; }
+        .token-number { font-size: 56px; font-weight: 700; line-height: 1; }
+        .token-name { font-size: 16px; margin-top: 6px; opacity: 0.9; }
+        
+        .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        
+        .status-card { padding: 14px; border-radius: 10px; text-align: center; }
+        .status-card.ahead { background: #fef3c7; }
+        .status-card.serving { background: #d1fae5; }
+        
+        .status-card-value { font-size: 26px; font-weight: 700; margin-bottom: 2px; }
+        .status-card.ahead .status-card-value { color: #92400e; }
+        .status-card.serving .status-card-value { color: #065f46; }
+        .status-card-label { font-size: 11px; color: var(--gray-600); }
+        
+        .your-turn {
+            background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .your-turn-text { font-size: 22px; font-weight: 700; }
+        .your-turn-sub { font-size: 13px; margin-top: 4px; opacity: 0.9; }
+        
+        .serving-now {
+            background: var(--gray-50);
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .serving-now-title { font-size: 11px; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+        .serving-tokens { display: flex; flex-wrap: wrap; gap: 6px; }
+        .serving-token { background: var(--success); color: white; padding: 6px 12px; border-radius: 16px; font-weight: 600; font-size: 13px; }
+        .no-serving { color: var(--gray-400); font-style: italic; font-size: 13px; }
+        
+        .update-indicator { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; color: var(--gray-400); margin-top: 14px; }
+        .update-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        
+        .loading { text-align: center; padding: 40px; color: var(--gray-500); }
+        .spinner { width: 36px; height: 36px; border: 3px solid var(--gray-200); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 14px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .error { background: #fef2f2; color: #991b1b; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
+        .hidden { display: none !important; }
+        
+        .completed-status { text-align: center; padding: 24px; background: var(--gray-100); border-radius: 12px; margin-bottom: 20px; }
+        .completed-icon { font-size: 44px; margin-bottom: 10px; }
+        .completed-text { font-size: 17px; font-weight: 600; color: var(--gray-700); }
+        .completed-sub { font-size: 13px; color: var(--gray-500); margin-top: 4px; }
+        
+        .no-shop { text-align: center; padding: 40px 20px; }
+        .no-shop-icon { font-size: 48px; margin-bottom: 16px; }
+        .no-shop-text { font-size: 18px; font-weight: 600; color: var(--gray-700); margin-bottom: 8px; }
+        .no-shop-sub { font-size: 14px; color: var(--gray-500); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <div class="shop-name" id="shopName">Loading...</div>
+                <div class="tagline">Smart Queue System</div>
+            </div>
+            
+            <div class="content">
+                <!-- No Shop Error -->
+                <div id="noShopState" class="no-shop hidden">
+                    <div class="no-shop-icon">🏪</div>
+                    <div class="no-shop-text">Shop Not Found</div>
+                    <div class="no-shop-sub">Please scan the correct QR code</div>
+                </div>
+                
+                <!-- Loading State -->
+                <div id="loadingState" class="loading">
+                    <div class="spinner"></div>
+                    <div>Loading...</div>
+                </div>
+                
+                <!-- Join Form -->
+                <div id="joinForm" class="hidden">
+                    <div id="shopStatus" class="shop-status open">
+                        <div class="status-dot"></div>
+                        <span id="shopStatusText">Shop is Open</span>
+                    </div>
+                    
+                    <div class="queue-info">
+                        <div class="info-card">
+                            <div class="info-label">Waiting</div>
+                            <div class="info-value" id="waitingCount">0</div>
+                        </div>
+                        <div class="info-card">
+                            <div class="info-label">Now Serving</div>
+                            <div class="info-value serving" id="servingDisplay">-</div>
+                        </div>
+                    </div>
+                    
+                    <div id="errorMessage" class="error hidden"></div>
+                    
+                    <form id="queueForm">
+                        <div class="form-group">
+                            <label class="form-label" for="nameInput">Your Name</label>
+                            <input type="text" id="nameInput" class="form-input" placeholder="Enter your name" required autocomplete="off">
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="joinBtn">Join Queue</button>
+                    </form>
+                </div>
+                
+                <!-- Queue Status -->
+                <div id="queueStatus" class="hidden">
+                    <div id="yourTurn" class="your-turn hidden">
+                        <div class="your-turn-text">🎉 It's Your Turn!</div>
+                        <div class="your-turn-sub">Please proceed to the counter</div>
+                    </div>
+                    
+                    <div id="completedStatus" class="completed-status hidden">
+                        <div class="completed-icon">✅</div>
+                        <div class="completed-text">Service Completed</div>
+                        <div class="completed-sub">Thank you for visiting!</div>
+                    </div>
+                    
+                    <div id="leftStatus" class="completed-status hidden">
+                        <div class="completed-icon">👋</div>
+                        <div class="completed-text">You Left the Queue</div>
+                        <div class="completed-sub">See you next time!</div>
+                    </div>
+                    
+                    <div id="skippedStatus" class="completed-status hidden">
+                        <div class="completed-icon">⏭️</div>
+                        <div class="completed-text">You Were Skipped</div>
+                        <div class="completed-sub">Please take a new token</div>
+                    </div>
+                    
+                    <div id="tokenDisplay" class="token-display">
+                        <div class="token-label">Your Token Number</div>
+                        <div class="token-number" id="tokenNumber">-</div>
+                        <div class="token-name" id="tokenName"></div>
+                    </div>
+                    
+                    <div id="statusGrid" class="status-grid">
+                        <div class="status-card ahead">
+                            <div class="status-card-value" id="peopleAhead">0</div>
+                            <div class="status-card-label">People Ahead</div>
+                        </div>
+                        <div class="status-card serving">
+                            <div class="status-card-value" id="currentServing">0</div>
+                            <div class="status-card-label">Being Served</div>
+                        </div>
+                    </div>
+                    
+                    <div id="servingNowSection" class="serving-now">
+                        <div class="serving-now-title">Now Serving</div>
+                        <div class="serving-tokens" id="servingTokens">
+                            <span class="no-serving">No one being served</span>
+                        </div>
+                    </div>
+                    
+                    <button id="leaveBtn" class="btn btn-danger">Leave Queue</button>
+                    
+                    <div class="update-indicator">
+                        <div class="update-dot"></div>
+                        <span>Auto-updating every 10 seconds</span>
+                    </div>
+                </div>
+                
+                <div id="rejoinSection" class="hidden">
+                    <button id="rejoinBtn" class="btn btn-primary">Join Queue Again</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Get shop ID from URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const SHOP_ID = urlParams.get('shop') || '';
+        const API_BASE = '/api';
+        
+        // State
+        let currentEntry = null;
+        let pollInterval = null;
+        let lastDataHash = '';
+        
+        // DOM Elements
+        const shopNameEl = document.getElementById('shopName');
+        const loadingState = document.getElementById('loadingState');
+        const noShopState = document.getElementById('noShopState');
+        const joinForm = document.getElementById('joinForm');
+        const queueStatus = document.getElementById('queueStatus');
+        const shopStatus = document.getElementById('shopStatus');
+        const shopStatusText = document.getElementById('shopStatusText');
+        const waitingCount = document.getElementById('waitingCount');
+        const servingDisplay = document.getElementById('servingDisplay');
+        const errorMessage = document.getElementById('errorMessage');
+        const queueForm = document.getElementById('queueForm');
+        const nameInput = document.getElementById('nameInput');
+        const joinBtn = document.getElementById('joinBtn');
+        const tokenNumber = document.getElementById('tokenNumber');
+        const tokenName = document.getElementById('tokenName');
+        const peopleAhead = document.getElementById('peopleAhead');
+        const currentServing = document.getElementById('currentServing');
+        const servingTokens = document.getElementById('servingTokens');
+        const leaveBtn = document.getElementById('leaveBtn');
+        const yourTurn = document.getElementById('yourTurn');
+        const completedStatus = document.getElementById('completedStatus');
+        const leftStatus = document.getElementById('leftStatus');
+        const skippedStatus = document.getElementById('skippedStatus');
+        const tokenDisplay = document.getElementById('tokenDisplay');
+        const statusGrid = document.getElementById('statusGrid');
+        const servingNowSection = document.getElementById('servingNowSection');
+        const rejoinSection = document.getElementById('rejoinSection');
+        const rejoinBtn = document.getElementById('rejoinBtn');
+        
+        // Hash function for change detection
+        function hashData(data) {
+            return JSON.stringify(data);
+        }
+        
+        // Initialize
+        async function init() {
+            if (!SHOP_ID) {
+                showNoShop();
+                return;
+            }
+            
+            const savedEntry = localStorage.getItem(`queueEntry_${SHOP_ID}`);
+            if (savedEntry) {
+                currentEntry = JSON.parse(savedEntry);
+                await checkStatus();
+            } else {
+                await loadInitialData();
+            }
+        }
+        
+        function showNoShop() {
+            loadingState.classList.add('hidden');
+            noShopState.classList.remove('hidden');
+            shopNameEl.textContent = 'Invalid Shop';
+        }
+        
+        async function loadInitialData() {
+            try {
+                const [settingsRes, queueRes] = await Promise.all([
+                    fetch(`${API_BASE}/settings?shop=${SHOP_ID}`),
+                    fetch(`${API_BASE}/queue/current?shop=${SHOP_ID}`)
+                ]);
+                
+                if (!settingsRes.ok) {
+                    showNoShop();
+                    return;
+                }
+                
+                const settingsData = await settingsRes.json();
+                const queue = await queueRes.json();
+                
+                shopNameEl.textContent = settingsData.settings.name || SHOP_ID;
+                document.title = `${settingsData.settings.name || SHOP_ID} - Queue`;
+                
+                updateShopStatus(settingsData.effectivelyOpen);
+                updateQueueInfo(queue);
+                showJoinForm();
+            } catch (err) {
+                console.error('Failed to load initial data:', err);
+                showError('Failed to connect. Please try again.');
+                showJoinForm();
+            }
+        }
+        
+        function updateShopStatus(isOpen) {
+            if (isOpen) {
+                shopStatus.className = 'shop-status open';
+                shopStatusText.textContent = 'Shop is Open';
+                joinBtn.disabled = false;
+            } else {
+                shopStatus.className = 'shop-status closed';
+                shopStatusText.textContent = 'Shop is Closed';
+                joinBtn.disabled = true;
+            }
+        }
+        
+        function updateQueueInfo(queue) {
+            const newHash = hashData(queue);
+            if (newHash === lastDataHash) return; // No change
+            lastDataHash = newHash;
+            
+            waitingCount.textContent = queue.waitingCount || 0;
+            if (queue.servingNow && queue.servingNow.length > 0) {
+                servingDisplay.textContent = '#' + queue.servingNow.join(', #');
+            } else {
+                servingDisplay.textContent = '-';
+            }
+        }
+        
+        function showJoinForm() {
+            loadingState.classList.add('hidden');
+            noShopState.classList.add('hidden');
+            joinForm.classList.remove('hidden');
+            queueStatus.classList.add('hidden');
+            rejoinSection.classList.add('hidden');
+        }
+        
+        function showQueueStatus() {
+            loadingState.classList.add('hidden');
+            noShopState.classList.add('hidden');
+            joinForm.classList.add('hidden');
+            queueStatus.classList.remove('hidden');
+            rejoinSection.classList.add('hidden');
+        }
+        
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+            setTimeout(() => errorMessage.classList.add('hidden'), 5000);
+        }
+        
+        async function joinQueue(name) {
+            try {
+                joinBtn.disabled = true;
+                joinBtn.textContent = 'Joining...';
+                
+                const response = await fetch(`${API_BASE}/queue/join`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopId: SHOP_ID, name, addedBy: 'customer' })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to join queue');
+                }
+                
+                const data = await response.json();
+                currentEntry = data;
+                localStorage.setItem(`queueEntry_${SHOP_ID}`, JSON.stringify(data));
+                
+                updateStatusDisplay(data);
+                showQueueStatus();
+                startPolling();
+                
+            } catch (err) {
+                console.error('Failed to join queue:', err);
+                showError(err.message);
+            } finally {
+                joinBtn.disabled = false;
+                joinBtn.textContent = 'Join Queue';
+            }
+        }
+        
+        async function checkStatus() {
+            if (!currentEntry) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/queue/status/${currentEntry.id}`);
+                
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        clearEntry();
+                        await loadInitialData();
+                        return;
+                    }
+                    throw new Error('Failed to check status');
+                }
+                
+                const data = await response.json();
+                
+                // Only update if data changed
+                const newHash = hashData(data);
+                if (newHash !== lastDataHash) {
+                    lastDataHash = newHash;
+                    currentEntry = { ...currentEntry, ...data };
+                    localStorage.setItem(`queueEntry_${SHOP_ID}`, JSON.stringify(currentEntry));
+                    updateStatusDisplay(data);
+                }
+                
+                showQueueStatus();
+                if (!pollInterval) startPolling();
+                
+            } catch (err) {
+                console.error('Failed to check status:', err);
+            }
+        }
+        
+        function updateStatusDisplay(data) {
+            tokenNumber.textContent = data.tokenNumber;
+            tokenName.textContent = data.name;
+            
+            // Reset all status displays
+            yourTurn.classList.add('hidden');
+            completedStatus.classList.add('hidden');
+            leftStatus.classList.add('hidden');
+            skippedStatus.classList.add('hidden');
+            tokenDisplay.classList.remove('hidden');
+            statusGrid.classList.remove('hidden');
+            servingNowSection.classList.remove('hidden');
+            leaveBtn.classList.remove('hidden');
+            rejoinSection.classList.add('hidden');
+            
+            if (data.status === 'serving') {
+                yourTurn.classList.remove('hidden');
+                statusGrid.classList.add('hidden');
+            } else if (data.status === 'completed') {
+                completedStatus.classList.remove('hidden');
+                tokenDisplay.classList.add('hidden');
+                statusGrid.classList.add('hidden');
+                servingNowSection.classList.add('hidden');
+                leaveBtn.classList.add('hidden');
+                rejoinSection.classList.remove('hidden');
+                stopPolling();
+            } else if (data.status === 'left') {
+                leftStatus.classList.remove('hidden');
+                tokenDisplay.classList.add('hidden');
+                statusGrid.classList.add('hidden');
+                servingNowSection.classList.add('hidden');
+                leaveBtn.classList.add('hidden');
+                rejoinSection.classList.remove('hidden');
+                stopPolling();
+            } else if (data.status === 'skipped' || data.status === 'expired') {
+                skippedStatus.classList.remove('hidden');
+                tokenDisplay.classList.add('hidden');
+                statusGrid.classList.add('hidden');
+                servingNowSection.classList.add('hidden');
+                leaveBtn.classList.add('hidden');
+                rejoinSection.classList.remove('hidden');
+                stopPolling();
+            }
+            
+            peopleAhead.textContent = data.peopleAhead || 0;
+            currentServing.textContent = data.currentlyServing || 0;
+            
+            if (data.servingNow && data.servingNow.length > 0) {
+                servingTokens.innerHTML = data.servingNow.map(t => `<span class="serving-token">#${t}</span>`).join('');
+            } else {
+                servingTokens.innerHTML = '<span class="no-serving">No one being served</span>';
+            }
+        }
+        
+        async function leaveQueue() {
+            if (!currentEntry) return;
+            if (!confirm('Are you sure you want to leave the queue?')) return;
+            
+            try {
+                leaveBtn.disabled = true;
+                leaveBtn.textContent = 'Leaving...';
+                
+                const response = await fetch(`${API_BASE}/queue/${currentEntry.id}/leave`, { method: 'PATCH' });
+                
+                if (response.ok) {
+                    currentEntry.status = 'left';
+                    localStorage.setItem(`queueEntry_${SHOP_ID}`, JSON.stringify(currentEntry));
+                    updateStatusDisplay(currentEntry);
+                    stopPolling();
+                }
+            } catch (err) {
+                console.error('Failed to leave queue:', err);
+                showError('Failed to leave queue.');
+            } finally {
+                leaveBtn.disabled = false;
+                leaveBtn.textContent = 'Leave Queue';
+            }
+        }
+        
+        function clearEntry() {
+            currentEntry = null;
+            localStorage.removeItem(`queueEntry_${SHOP_ID}`);
+            lastDataHash = '';
+            stopPolling();
+        }
+        
+        function startPolling() {
+            if (pollInterval) return;
+            pollInterval = setInterval(checkStatus, 10000); // 10 seconds
+        }
+        
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+        
+        function handleRejoin() {
+            clearEntry();
+            loadInitialData();
+            nameInput.value = '';
+        }
+        
+        // Event listeners
+        queueForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = nameInput.value.trim();
+            if (name) await joinQueue(name);
+        });
+        
+        leaveBtn.addEventListener('click', leaveQueue);
+        rejoinBtn.addEventListener('click', handleRejoin);
+        
+        // Start
+        init();
+        
+        // Refresh shop status less frequently
+        setInterval(async () => {
+            if (!currentEntry) {
+                try {
+                    const queueRes = await fetch(`${API_BASE}/queue/current?shop=${SHOP_ID}`);
+                    if (queueRes.ok) {
+                        const queue = await queueRes.json();
+                        updateQueueInfo(queue);
+                    }
+                } catch (e) {}
+            }
+        }, 30000); // 30 seconds
+    </script>
+</body>
+</html>
