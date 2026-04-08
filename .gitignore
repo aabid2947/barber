@@ -44,3 +44,4 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+android/app/*.keystore
