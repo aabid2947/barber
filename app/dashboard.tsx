@@ -119,8 +119,8 @@ export default function Dashboard() {
       return { success: false, reason: 'web-platform' };
     }
 
-    // Guard: never register with empty/default shopId
-    if (!currentShopId || currentShopId === 'default') {
+    // Guard: never register with empty shopId
+    if (!currentShopId) {
       console.warn(`[FCM] Skipping barber push registration for invalid shopId: "${currentShopId}"`);
       return { success: false, reason: 'invalid-shop-id' };
     }
@@ -210,8 +210,7 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const d = await res.json();
-      if (d.success) {
+      const d = await res.json();      console.log(`[AUTH] Login API Response:`, JSON.stringify(d, null, 2));      if (d.success) {
         await AsyncStorage.setItem(BARBER_AUTH_KEY, 'true');
         await AsyncStorage.setItem('@barber_login_time', new Date().toISOString());
         await AsyncStorage.setItem('@shop_id', d.shopId);

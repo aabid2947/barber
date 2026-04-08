@@ -244,12 +244,23 @@ export async function registerMobilePushDevice(payload: RegisterMobilePushPayloa
   // Get FCM token
   console.log('[FCM] Getting FCM token...');
   let fcmToken = '';
-  try {
-    fcmToken = await firebaseMessaging().getToken();
-    console.log(`[FCM] Token acquired: ${fcmToken.substring(0, 20)}...${fcmToken.substring(fcmToken.length - 10)}`);
-  } catch (error) {
-    console.error('[FCM] Failed to get FCM token:', error);
-    return { success: false, reason: 'token-fetch-failed' };
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      fcmToken = await firebaseMessaging().getToken();
+      if (fcmToken) {
+        console.log(`[FCM] Token acquired: ${fcmToken.substring(0, 20)}...${fcmToken.substring(fcmToken.length - 10)}`);
+        break;
+      }
+    } catch (error) {
+      console.warn(`[FCM] Failed to get FCM token (retries left: ${retries - 1}):`, error);
+      retries--;
+      if (retries === 0) {
+        console.error('[FCM] Exhausted all retries for FCM token');
+        return { success: false, reason: 'token-fetch-failed' };
+      }
+      await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+    }
   }
 
   if (!fcmToken) {

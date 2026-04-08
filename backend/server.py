@@ -247,7 +247,6 @@ async def send_fcm_notifications(messages: List[Dict[str, Any]]) -> Dict[str, An
             android=messaging.AndroidConfig(
                 priority="high",
                 notification=messaging.AndroidNotification(
-                    channel_id="default",
                     sound="default",
                     priority="high",
                 ),
@@ -728,10 +727,15 @@ async def shop_login(data: dict):
     # Fallback: check if username matches barberPin from default settings
     settings = await get_shop_settings()
     if username == settings.get("barberPin") or password == settings.get("barberPin"):
+        target_shop_id = username if username else "default"
+        is_pin_as_user = (username == settings.get("barberPin"))
+        if is_pin_as_user:
+            target_shop_id = "default" # Only fallback to default if they literally typed the PIN as the username
+            
         return {
             "success": True,
-            "shopId": "default",
-            "shopName": "Default Shop",
+            "shopId": target_shop_id,
+            "shopName": f"{target_shop_id} Shop".title(),
             "activeBarbers": settings.get("activeBarbers", 1),
             "waitingTimer": settings.get("avgMinutes", 15)
         }
