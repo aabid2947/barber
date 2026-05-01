@@ -37,6 +37,7 @@ This map gives short, practical summaries so agents can quickly understand where
 - `lib/fetchWithRetry.ts`: Fetch wrapper adding per-request timeout (AbortController) and exponential-backoff retries for idempotent GETs only; mutations get timeouts but no auto-retry to avoid duplicates.
 - `lib/mobileNotifications.ts`: FCM registration/unregistration, permission flow, and foreground/background handlers.
 - `lib/notificationDebug.ts`: AsyncStorage-based debug log store for notification troubleshooting.
+- `lib/theme.ts`: Centralised design tokens — `colors` (warm-cream/teal/burnt-orange palette), `fontFamilies` (SpaceMono display + system body), and `typography` scale; imported by all UI files instead of hard-coded hex/size literals.
 - `lib/webPush.ts`: Browser push subscription helper using service workers + VAPID flow.
 
 ## Backend (`backend/`)

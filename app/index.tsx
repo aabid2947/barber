@@ -10,9 +10,12 @@ import {
   Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { registerMobilePushDevice } from '../lib/mobileNotifications';
 import { getBackendBaseUrl } from '../lib/backendUrl';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
+import { colors, fontFamilies, typography } from '../lib/theme';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const MY_ENTRIES_KEY = '@my_queue_entries';
@@ -59,6 +62,9 @@ interface MyEntry {
 }
 
 export default function Index() {
+  // Bottom safe-area inset so the last item in each ScrollView clears the
+  // Android 3-button nav / iOS home indicator.
+  const insets = useSafeAreaInsets();
   // Shop selection state
   const [shops, setShops] = useState<Shop[]>([]);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
@@ -370,7 +376,7 @@ export default function Index() {
   // STEP 1: Shop Selection Screen
   if (!selectedShop && !joined) {
     return (
-      <ScrollView style={st.container} contentContainerStyle={st.scrollPad}>
+      <ScrollView style={st.container} contentContainerStyle={[st.scrollPad, { paddingBottom: 16 + insets.bottom }]}>
         <View style={st.header}>
           <Text style={st.brand}>Quevix</Text>
           <Text style={st.brandSub}>Smart Queue Platform</Text>
@@ -409,7 +415,7 @@ export default function Index() {
           </View>
         ) : loadingShops ? (
           <View style={st.inlineLoader}>
-            <ActivityIndicator size="small" color="#007BFF" />
+            <ActivityIndicator size="small" color={colors.brandPrimary} />
             <Text style={st.loadingText}>Loading shops...</Text>
           </View>
         ) : (
@@ -444,10 +450,15 @@ export default function Index() {
     );
   }
 
-  // STEP 2: Join Queue Form (after shop selected)
+  // STEP 2: Join Queue Form (after shop selected) — KeyboardAwareScrollView ensures the
+  // name input stays visible when the keyboard slides up.
   if (selectedShop && !joined) {
     return (
-      <ScrollView style={st.container} contentContainerStyle={st.scrollPad}>
+      <KeyboardAwareScrollView
+        style={st.container}
+        contentContainerStyle={[st.scrollPad, { paddingBottom: 16 + insets.bottom }]}
+        bottomOffset={24}
+      >
         <TouchableOpacity style={st.backBtn} onPress={handleBackToShops}>
           <Text style={st.backBtnText}>← Back to Shops</Text>
         </TouchableOpacity>
@@ -465,7 +476,7 @@ export default function Index() {
             value={name}
             onChangeText={(t) => { setName(t); setErrorMessage(''); }}
             placeholder="Enter your name"
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textPlaceholder}
             maxLength={50}
           />
           
@@ -494,7 +505,7 @@ export default function Index() {
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={colors.white} />
             ) : (
               <Text style={st.joinBtnText}>JOIN QUEUE</Text>
             )}
@@ -556,7 +567,7 @@ export default function Index() {
             </View>
           </View>
         </Modal>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     );
   }
 
@@ -585,7 +596,7 @@ export default function Index() {
     }
 
     return (
-      <ScrollView style={st.container}>
+      <ScrollView style={st.container} contentContainerStyle={{ paddingBottom: insets.bottom }}>
         {/* Shop Name Header */}
         <View style={st.statusHeader}>
           <Text style={st.statusShopName}>{selectedShop?.name || 'Queue'}</Text>
@@ -681,7 +692,7 @@ export default function Index() {
                   disabled={leaving}
                   onPress={confirmLeaveQueue}
                 >
-                  {leaving ? <ActivityIndicator color="#fff" /> : <Text style={st.modalConfirmText}>Leave</Text>}
+                  {leaving ? <ActivityIndicator color={colors.white} /> : <Text style={st.modalConfirmText}>Leave</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -695,140 +706,140 @@ export default function Index() {
 }
 
 const st = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   scrollPad: { padding: 16, paddingTop: 56 },
-  loadingText: { marginTop: 12, fontSize: 14, color: '#6C757D' },
+  loadingText: { marginTop: 12, fontSize: 14, color: colors.textSecondary },
 
   header: { marginBottom: 24 },
-  brand: { fontSize: 32, fontWeight: '800', color: '#1A1A2E' },
-  brandSub: { fontSize: 14, color: '#6C757D', marginTop: 4 },
+  brand: { fontFamily: fontFamilies.display, fontSize: typography.size.display, fontWeight: typography.weight.extrabold, color: colors.textPrimary, letterSpacing: typography.tracking.wider },
+  brandSub: { fontFamily: fontFamilies.display, fontSize: typography.size.base, color: colors.textSecondary, marginTop: 4, letterSpacing: typography.tracking.wide },
 
-  selectTitle: { fontSize: 22, fontWeight: '700', color: '#1A1A2E', marginBottom: 16 },
+  selectTitle: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
 
-  errorBox: { backgroundColor: '#F8D7DA', padding: 12, borderRadius: 10, marginBottom: 16 },
-  errorText: { color: '#721C24', fontSize: 14 },
+  errorBox: { backgroundColor: colors.dangerBg, padding: 12, borderRadius: 10, marginBottom: 16 },
+  errorText: { color: colors.dangerText, fontSize: 14 },
 
   shopsList: { gap: 12 },
-  shopCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E9ECEF' },
-  shopCardClosed: { backgroundColor: '#F8F9FA', opacity: 0.7 },
+  shopCard: { backgroundColor: colors.white, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.border },
+  shopCardClosed: { backgroundColor: colors.bg, opacity: 0.7 },
   shopCardContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  shopName: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  shopName: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
   statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-  statusOpen: { backgroundColor: '#D4EDDA' },
-  statusClosed: { backgroundColor: '#F8D7DA' },
+  statusOpen: { backgroundColor: colors.successBg },
+  statusClosed: { backgroundColor: colors.dangerBg },
   statusText: { fontSize: 12, fontWeight: '700' },
-  shopHours: { fontSize: 13, color: '#6C757D' },
-  shopClosedMsg: { fontSize: 13, color: '#DC3545', fontStyle: 'italic' },
+  shopHours: { fontSize: 13, color: colors.textSecondary },
+  shopClosedMsg: { fontSize: 13, color: colors.danger, fontStyle: 'italic' },
 
-  emptyBox: { backgroundColor: '#fff', borderRadius: 12, padding: 32, alignItems: 'center' },
-  emptyText: { fontSize: 16, color: '#6C757D' },
-  inlineLoader: { backgroundColor: '#fff', borderRadius: 12, padding: 32, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 12 },
+  emptyBox: { backgroundColor: colors.white, borderRadius: 12, padding: 32, alignItems: 'center' },
+  emptyText: { fontSize: 16, color: colors.textSecondary },
+  inlineLoader: { backgroundColor: colors.white, borderRadius: 12, padding: 32, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 12 },
 
   activeSection: { marginTop: 24 },
-  activeSectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
-  activeEntry: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E7F3FF', padding: 14, borderRadius: 10, marginBottom: 8 },
-  activeToken: { fontSize: 20, fontWeight: '800', color: '#007BFF', width: 60 },
-  activeName: { fontSize: 15, fontWeight: '600', color: '#1A1A2E' },
-  activeShop: { fontSize: 12, color: '#6C757D' },
-  viewBtn: { marginLeft: 'auto', color: '#007BFF', fontWeight: '600' },
+  activeSectionTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
+  activeEntry: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.brandPrimaryLight, padding: 14, borderRadius: 10, marginBottom: 8 },
+  activeToken: { fontFamily: fontFamilies.display, fontSize: typography.size.h2, fontWeight: typography.weight.extrabold, color: colors.brandPrimary, width: 60 },
+  activeName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  activeShop: { fontSize: 12, color: colors.textSecondary },
+  viewBtn: { marginLeft: 'auto', color: colors.brandPrimary, fontWeight: '600' },
 
   backBtn: { marginBottom: 16 },
-  backBtnText: { fontSize: 16, color: '#007BFF', fontWeight: '600' },
+  backBtnText: { fontSize: 16, color: colors.brandPrimary, fontWeight: '600' },
 
-  selectedShopCard: { backgroundColor: '#007BFF', borderRadius: 12, padding: 20, marginBottom: 20 },
-  selectedShopName: { fontSize: 22, fontWeight: '700', color: '#fff' },
+  selectedShopCard: { backgroundColor: colors.brandPrimary, borderRadius: 12, padding: 20, marginBottom: 20 },
+  selectedShopName: { fontSize: 22, fontWeight: '700', color: colors.white },
   selectedShopHours: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
 
-  formCard: { backgroundColor: '#fff', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E9ECEF' },
-  formTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 16 },
-  formLabel: { fontSize: 15, fontWeight: '600', color: '#495057', marginBottom: 8 },
-  input: { borderWidth: 1, borderColor: '#CED4DA', borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 12 },
-  formError: { color: '#DC3545', fontSize: 13, marginBottom: 12 },
-  joinBtn: { backgroundColor: '#28A745', padding: 16, borderRadius: 10, alignItems: 'center' },
-  joinBtnDisabled: { backgroundColor: '#6C757D' },
-  joinBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  formCard: { backgroundColor: colors.white, borderRadius: 12, padding: 20, borderWidth: 1, borderColor: colors.border },
+  formTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
+  formLabel: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 8 },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 12 },
+  formError: { color: colors.danger, fontSize: 13, marginBottom: 12 },
+  joinBtn: { backgroundColor: colors.success, padding: 16, borderRadius: 10, alignItems: 'center' },
+  joinBtnDisabled: { backgroundColor: colors.textSecondary },
+  joinBtnText: { color: colors.white, fontSize: 16, fontWeight: '700' },
 
   // Barber selection styles
   barberSection: { marginTop: 8, marginBottom: 12 },
-  barberDropdown: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#CED4DA', borderRadius: 8, padding: 14 },
-  barberDropdownText: { fontSize: 15, color: '#1A1A2E' },
-  barberDropdownArrow: { fontSize: 10, color: '#6C757D' },
+  barberDropdown: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14 },
+  barberDropdownText: { fontSize: 15, color: colors.textPrimary },
+  barberDropdownArrow: { fontSize: 10, color: colors.textSecondary },
 
   // Barber picker modal styles
-  pickerBox: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%', maxWidth: 360, maxHeight: '70%' },
-  pickerTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginBottom: 16, textAlign: 'center' },
+  pickerBox: { backgroundColor: colors.white, borderRadius: 16, padding: 20, width: '85%', maxWidth: 360, maxHeight: '70%' },
+  pickerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 16, textAlign: 'center' },
   pickerList: { maxHeight: 300 },
-  pickerItem: { padding: 14, borderRadius: 8, marginBottom: 8, backgroundColor: '#F8F9FA' },
-  pickerItemSelected: { backgroundColor: '#007BFF' },
-  pickerItemText: { fontSize: 15, color: '#1A1A2E' },
-  pickerItemTextSelected: { color: '#fff', fontWeight: '600' },
-  pickerCancel: { padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#F0F0F0', marginTop: 12 },
-  pickerCancelText: { color: '#333', fontSize: 15, fontWeight: '600' },
+  pickerItem: { padding: 14, borderRadius: 8, marginBottom: 8, backgroundColor: colors.bg },
+  pickerItemSelected: { backgroundColor: colors.brandPrimary },
+  pickerItemText: { fontSize: 15, color: colors.textPrimary },
+  pickerItemTextSelected: { color: colors.white, fontWeight: '600' },
+  pickerCancel: { padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.surfaceAlt, marginTop: 12 },
+  pickerCancelText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
 
-  statusHeader: { backgroundColor: '#007BFF', padding: 20, paddingTop: 56 },
-  statusShopName: { fontSize: 20, fontWeight: '700', color: '#fff', textAlign: 'center' },
+  statusHeader: { backgroundColor: colors.brandPrimary, padding: 20, paddingTop: 56 },
+  statusShopName: { fontSize: 20, fontWeight: '700', color: colors.white, textAlign: 'center' },
 
-  tokenCard: { margin: 16, backgroundColor: '#fff', borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 2, borderColor: '#E9ECEF' },
-  tokenCardServing: { backgroundColor: '#D4EDDA', borderColor: '#28A745' },
-  tokenLabel: { fontSize: 14, color: '#6C757D', marginBottom: 8 },
-  tokenNumber: { fontSize: 64, fontWeight: '800', color: '#007BFF' },
-  tokenName: { fontSize: 18, color: '#1A1A2E', marginTop: 8 },
+  tokenCard: { margin: 16, backgroundColor: colors.white, borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 2, borderColor: colors.border },
+  tokenCardServing: { backgroundColor: colors.successBg, borderColor: colors.success },
+  tokenLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: 8 },
+  tokenNumber: { fontFamily: fontFamilies.display, fontSize: 64, fontWeight: typography.weight.extrabold, color: colors.brandPrimary, letterSpacing: typography.tracking.wider },
+  tokenName: { fontSize: 18, color: colors.textPrimary, marginTop: 8 },
   statusIndicator: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 8, borderRadius: 20 },
-  statusWaiting: { backgroundColor: '#FFF3CD' },
-  statusServing: { backgroundColor: '#28A745' },
-  statusIndicatorText: { fontSize: 14, fontWeight: '700', color: '#856404' },
-  statusIndicatorTextServing: { color: '#fff' },
+  statusWaiting: { backgroundColor: colors.warningBg },
+  statusServing: { backgroundColor: colors.success },
+  statusIndicatorText: { fontSize: 14, fontWeight: '700', color: colors.warningText },
+  statusIndicatorTextServing: { color: colors.white },
   servingInfo: { alignItems: 'center', marginTop: 12 },
-  goNowText: { fontSize: 15, color: '#155724', fontWeight: '600', textAlign: 'center' },
+  goNowText: { fontSize: 15, color: colors.successText, fontWeight: '600', textAlign: 'center' },
   
   // Timer styles
-  timerBox: { marginTop: 16, backgroundColor: '#FFF3CD', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderColor: '#FFE69C' },
-  timerBoxExpired: { backgroundColor: '#F8D7DA', borderColor: '#F5C6CB' },
+  timerBox: { marginTop: 16, backgroundColor: colors.warningBg, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderColor: colors.warningBorder },
+  timerBoxExpired: { backgroundColor: colors.dangerBg, borderColor: colors.dangerBg },
   timerIcon: { fontSize: 24, marginRight: 10 },
-  timerText: { fontSize: 20, fontWeight: '800', color: '#856404' },
-  timerTextExpired: { color: '#721C24' },
-  serviceStartedBox: { marginTop: 12, backgroundColor: '#D4EDDA', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
-  serviceStartedText: { fontSize: 14, color: '#155724', fontWeight: '600' },
+  timerText: { fontSize: 20, fontWeight: '800', color: colors.warningText },
+  timerTextExpired: { color: colors.dangerText },
+  serviceStartedBox: { marginTop: 12, backgroundColor: colors.successBg, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  serviceStartedText: { fontSize: 14, color: colors.successText, fontWeight: '600' },
   
   waitInfo: { marginTop: 16, alignItems: 'center' },
-  waitText: { fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
-  servingText: { fontSize: 13, color: '#6C757D', marginTop: 4 },
+  waitText: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
+  servingText: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
 
   actions: { marginHorizontal: 16, marginTop: 16, gap: 12 },
-  leaveBtn: { backgroundColor: '#F8D7DA', padding: 14, borderRadius: 10, alignItems: 'center' },
-  leaveBtnText: { color: '#DC3545', fontSize: 15, fontWeight: '600' },
-  newEntryBtn: { backgroundColor: '#E7F3FF', padding: 14, borderRadius: 10, alignItems: 'center' },
-  newEntryBtnText: { color: '#007BFF', fontSize: 15, fontWeight: '600' },
+  leaveBtn: { backgroundColor: colors.dangerBg, padding: 14, borderRadius: 10, alignItems: 'center' },
+  leaveBtnText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
+  newEntryBtn: { backgroundColor: colors.brandPrimaryLight, padding: 14, borderRadius: 10, alignItems: 'center' },
+  newEntryBtnText: { color: colors.brandPrimary, fontSize: 15, fontWeight: '600' },
 
   otherEntries: { marginHorizontal: 16, marginTop: 24 },
-  otherEntriesTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
-  otherEntry: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 12, borderRadius: 8, marginBottom: 8 },
-  otherToken: { fontSize: 18, fontWeight: '700', color: '#007BFF', width: 50 },
-  otherShop: { fontSize: 14, color: '#6C757D', flex: 1 },
+  otherEntriesTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
+  otherEntry: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, padding: 12, borderRadius: 8, marginBottom: 8 },
+  otherToken: { fontSize: 18, fontWeight: '700', color: colors.brandPrimary, width: 50 },
+  otherShop: { fontSize: 14, color: colors.textSecondary, flex: 1 },
 
-  logCard: { marginHorizontal: 16, marginTop: 20, marginBottom: 12, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E9ECEF', padding: 12 },
+  logCard: { marginHorizontal: 16, marginTop: 20, marginBottom: 12, backgroundColor: colors.white, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 12 },
   logHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  logTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A2E' },
+  logTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   logActions: { flexDirection: 'row', gap: 8 },
-  logActionBtn: { backgroundColor: '#E7F3FF', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  logActionBtnText: { color: '#007BFF', fontSize: 12, fontWeight: '700' },
-  logClearBtn: { backgroundColor: '#F8D7DA', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  logClearBtnText: { color: '#B4232A', fontSize: 12, fontWeight: '700' },
-  logHint: { marginTop: 8, marginBottom: 10, color: '#6C757D', fontSize: 12 },
-  logEmpty: { color: '#6C757D', fontSize: 12 },
-  logItem: { backgroundColor: '#F8F9FA', borderRadius: 8, padding: 8, marginBottom: 8 },
-  logMeta: { fontSize: 11, color: '#6C757D', fontWeight: '600' },
-  logMessage: { fontSize: 13, color: '#1A1A2E', marginTop: 2 },
-  logDetails: { fontSize: 11, color: '#495057', marginTop: 4 },
+  logActionBtn: { backgroundColor: colors.brandPrimaryLight, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  logActionBtnText: { color: colors.brandPrimary, fontSize: 12, fontWeight: '700' },
+  logClearBtn: { backgroundColor: colors.dangerBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  logClearBtnText: { color: colors.dangerText, fontSize: 12, fontWeight: '700' },
+  logHint: { marginTop: 8, marginBottom: 10, color: colors.textSecondary, fontSize: 12 },
+  logEmpty: { color: colors.textSecondary, fontSize: 12 },
+  logItem: { backgroundColor: colors.bg, borderRadius: 8, padding: 8, marginBottom: 8 },
+  logMeta: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
+  logMessage: { fontSize: 13, color: colors.textPrimary, marginTop: 2 },
+  logDetails: { fontSize: 11, color: colors.textPrimary, marginTop: 4 },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalBox: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 8, textAlign: 'center' },
-  modalMsg: { fontSize: 15, color: '#6C757D', marginBottom: 20, textAlign: 'center' },
+  modalBox: { backgroundColor: colors.white, borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 8, textAlign: 'center' },
+  modalMsg: { fontSize: 15, color: colors.textSecondary, marginBottom: 20, textAlign: 'center' },
   modalBtns: { flexDirection: 'row', gap: 12 },
-  modalCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#28A745' },
-  modalConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#DC3545' },
-  modalCancelText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  modalConfirmText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  modalCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.success },
+  modalConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.danger },
+  modalCancelText: { color: colors.white, fontSize: 15, fontWeight: '600' },
+  modalConfirmText: { color: colors.white, fontSize: 15, fontWeight: '600' },
 });

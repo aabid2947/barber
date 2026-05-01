@@ -114,6 +114,7 @@ Snapshot of the current project tree.
 |   |-- fetchWithRetry.ts
 |   |-- mobileNotifications.ts
 |   |-- notificationDebug.ts
+|   |-- theme.ts
 |   |-- webPush.ts
 |-- public/
 |   |-- sw.js

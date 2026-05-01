@@ -11,9 +11,12 @@ import {
   Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { registerMobilePushDevice, unregisterMobilePushDevice } from '../lib/mobileNotifications';
 import { getBackendBaseUrl } from '../lib/backendUrl';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
+import { colors, fontFamilies, typography } from '../lib/theme';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const BARBER_AUTH_KEY = '@barber_authed';
@@ -63,6 +66,9 @@ interface DashboardData {
 }
 
 export default function Dashboard() {
+  // Bottom safe-area inset so the bottom of every ScrollView clears the
+  // Android 3-button nav / iOS home indicator.
+  const insets = useSafeAreaInsets();
   const [isAuth, setIsAuth] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loginError, setLoginError] = useState('');
@@ -629,13 +635,17 @@ export default function Dashboard() {
 
   // Loading state
   if (loading) {
-    return <View style={s.center}><ActivityIndicator size="large" color="#007BFF" /></View>;
+    return <View style={s.center}><ActivityIndicator size="large" color={colors.brandPrimary} /></View>;
   }
 
   // Login screen (Username + Password only)
   if (!isAuth) {
     return (
-      <ScrollView style={s.container} contentContainerStyle={s.scrollPad}>
+      <KeyboardAwareScrollView
+        style={s.container}
+        contentContainerStyle={[s.scrollPad, { paddingBottom: 16 + insets.bottom }]}
+        bottomOffset={24}
+      >
         <View style={s.headerSection}>
           <Text style={s.brand}>Quevix</Text>
           <Text style={s.brandSub}>Smart Queue Platform</Text>
@@ -654,7 +664,7 @@ export default function Dashboard() {
             value={username}
             onChangeText={(t) => { setUsername(t); setLoginError(''); }}
             placeholder="Enter username"
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textPlaceholder}
             autoCapitalize="none"
           />
           <Text style={s.label}>Password</Text>
@@ -663,7 +673,7 @@ export default function Dashboard() {
             value={password}
             onChangeText={(t) => { setPassword(t); setLoginError(''); }}
             placeholder="Enter password"
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textPlaceholder}
             secureTextEntry
           />
           {loginError ? <Text style={s.error}>{loginError}</Text> : null}
@@ -671,13 +681,17 @@ export default function Dashboard() {
             <Text style={s.btnPrimaryText}>LOGIN</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     );
   }
 
-  // Dashboard
+  // Dashboard — KeyboardAwareScrollView so the Add-Customer input scrolls into view when focused.
   return (
-    <ScrollView style={s.container}>
+    <KeyboardAwareScrollView
+      style={s.container}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
+      bottomOffset={24}
+    >
       {/* Header with Shop Name and Logout */}
       <View style={s.headerBar}>
         <View>
@@ -765,7 +779,7 @@ export default function Dashboard() {
         {!data ? (
           // First-ever login, no cache yet — don't guess at a chair count.
           <View style={s.chairsLoader}>
-            <ActivityIndicator size="small" color="#007BFF" />
+            <ActivityIndicator size="small" color={colors.brandPrimary} />
             <Text style={s.chairsLoaderText}>Loading chairs...</Text>
           </View>
         ) : (() => {
@@ -891,7 +905,7 @@ export default function Dashboard() {
             value={addName}
             onChangeText={setAddName}
             placeholder="Customer name"
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textPlaceholder}
           />
           <TouchableOpacity
             style={[s.btnAdd, pendingActions.has('add-customer') && s.btnDisabled]}
@@ -899,7 +913,7 @@ export default function Dashboard() {
             onPress={handleAddCustomer}
           >
             {pendingActions.has('add-customer')
-              ? <ActivityIndicator color="#fff" />
+              ? <ActivityIndicator color={colors.white} />
               : <Text style={s.btnAddText}>ADD</Text>}
           </TouchableOpacity>
         </View>
@@ -1040,139 +1054,139 @@ export default function Dashboard() {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   scrollPad: { padding: 16, paddingTop: 56 },
   headerSection: { marginBottom: 24 },
-  brand: { fontSize: 28, fontWeight: '800', color: '#1A1A2E' },
-  brandSub: { fontSize: 14, color: '#6C757D', marginTop: 2 },
-  subtitle: { fontSize: 16, color: '#495057', marginTop: 12 },
+  brand: { fontFamily: fontFamilies.display, fontSize: typography.size.display, fontWeight: typography.weight.extrabold, color: colors.textPrimary, letterSpacing: typography.tracking.wider },
+  brandSub: { fontFamily: fontFamilies.display, fontSize: typography.size.base, color: colors.textSecondary, marginTop: 2, letterSpacing: typography.tracking.wide },
+  subtitle: { fontSize: 16, color: colors.textPrimary, marginTop: 12 },
 
-  headerBar: { padding: 16, paddingTop: 56, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E9ECEF', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  shopTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E' },
-  shopIdText: { fontSize: 12, color: '#6C757D', marginTop: 2 },
-  logoutBtn: { backgroundColor: '#F8D7DA', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
-  logoutText: { fontSize: 14, color: '#DC3545', fontWeight: '600' },
+  headerBar: { padding: 16, paddingTop: 56, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  shopTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
+  shopIdText: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  logoutBtn: { backgroundColor: colors.dangerBg, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  logoutText: { fontSize: 14, color: colors.danger, fontWeight: '600' },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E9ECEF' },
-  label: { fontSize: 15, fontWeight: '600', color: '#495057', marginBottom: 8, marginTop: 12 },
-  input: { borderWidth: 1, borderColor: '#CED4DA', borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 8, backgroundColor: '#fff' },
-  error: { color: '#DC3545', fontSize: 13, marginBottom: 8 },
-  btnPrimary: { backgroundColor: '#007BFF', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-  btnPrimaryText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  card: { backgroundColor: colors.white, borderRadius: 12, padding: 20, borderWidth: 1, borderColor: colors.border },
+  label: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 8, marginTop: 12 },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 8, backgroundColor: colors.white },
+  error: { color: colors.danger, fontSize: 13, marginBottom: 8 },
+  btnPrimary: { backgroundColor: colors.brandPrimary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
+  btnPrimaryText: { color: colors.white, fontSize: 16, fontWeight: '700' },
 
-  expiredBox: { backgroundColor: '#FFF3CD', padding: 16, borderRadius: 10, marginBottom: 16, borderWidth: 1, borderColor: '#FFE69C' },
-  expiredTitle: { fontSize: 16, fontWeight: '700', color: '#664D03' },
-  expiredMsg: { fontSize: 14, color: '#664D03', marginTop: 4 },
+  expiredBox: { backgroundColor: colors.warningBg, padding: 16, borderRadius: 10, marginBottom: 16, borderWidth: 1, borderColor: colors.warningBorder },
+  expiredTitle: { fontSize: 16, fontWeight: '700', color: colors.warningText },
+  expiredMsg: { fontSize: 14, color: colors.warningText, marginTop: 4 },
 
-  toast: { backgroundColor: '#28A745', padding: 14, margin: 16, borderRadius: 10, alignItems: 'center' },
-  toastText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  toast: { backgroundColor: colors.success, padding: 14, margin: 16, borderRadius: 10, alignItems: 'center' },
+  toastText: { color: colors.white, fontSize: 14, fontWeight: '600' },
 
   pushSection: { padding: 16 },
-  btnNotify: { backgroundColor: '#6F42C1', padding: 14, borderRadius: 10, alignItems: 'center' },
-  btnNotifyText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  pushEnabled: { margin: 16, backgroundColor: '#D4EDDA', padding: 12, borderRadius: 10, alignItems: 'center' },
-  pushEnabledText: { color: '#155724', fontSize: 13, fontWeight: '500' },
+  btnNotify: { backgroundColor: colors.accent, padding: 14, borderRadius: 10, alignItems: 'center' },
+  btnNotifyText: { color: colors.white, fontSize: 14, fontWeight: '700' },
+  pushEnabled: { margin: 16, backgroundColor: colors.successBg, padding: 12, borderRadius: 10, alignItems: 'center' },
+  pushEnabledText: { color: colors.successText, fontSize: 13, fontWeight: '500' },
 
-  logSection: { marginHorizontal: 16, marginTop: 4, marginBottom: 8, backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#E9ECEF', padding: 12 },
+  logSection: { marginHorizontal: 16, marginTop: 4, marginBottom: 8, backgroundColor: colors.white, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 12 },
   logHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  logTitle: { fontSize: 14, fontWeight: '700', color: '#1A1A2E' },
+  logTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
   logActionRow: { flexDirection: 'row', gap: 8 },
-  logActionBtn: { backgroundColor: '#E7F3FF', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  logActionBtnText: { color: '#007BFF', fontSize: 12, fontWeight: '700' },
-  logClearBtn: { backgroundColor: '#F8D7DA', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  logClearBtnText: { color: '#B4232A', fontSize: 12, fontWeight: '700' },
-  logHint: { marginTop: 8, marginBottom: 10, color: '#6C757D', fontSize: 12 },
-  logEmpty: { color: '#6C757D', fontSize: 12 },
-  logItem: { backgroundColor: '#F8F9FA', borderRadius: 8, padding: 8, marginBottom: 8 },
-  logMeta: { fontSize: 11, color: '#6C757D', fontWeight: '600' },
-  logMessage: { fontSize: 13, color: '#1A1A2E', marginTop: 2 },
-  logDetails: { fontSize: 11, color: '#495057', marginTop: 4 },
+  logActionBtn: { backgroundColor: colors.brandPrimaryLight, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  logActionBtnText: { color: colors.brandPrimary, fontSize: 12, fontWeight: '700' },
+  logClearBtn: { backgroundColor: colors.dangerBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  logClearBtnText: { color: colors.dangerText, fontSize: 12, fontWeight: '700' },
+  logHint: { marginTop: 8, marginBottom: 10, color: colors.textSecondary, fontSize: 12 },
+  logEmpty: { color: colors.textSecondary, fontSize: 12 },
+  logItem: { backgroundColor: colors.bg, borderRadius: 8, padding: 8, marginBottom: 8 },
+  logMeta: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
+  logMessage: { fontSize: 13, color: colors.textPrimary, marginTop: 2 },
+  logDetails: { fontSize: 11, color: colors.textPrimary, marginTop: 4 },
 
   statsRow: { flexDirection: 'row', margin: 16, gap: 10 },
-  statBox: { flex: 1, backgroundColor: '#fff', padding: 16, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#E9ECEF' },
-  statNum: { fontSize: 24, fontWeight: '800', color: '#1A1A2E' },
-  statLabel: { fontSize: 12, color: '#6C757D', marginTop: 4 },
+  statBox: { flex: 1, backgroundColor: colors.white, padding: 16, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+  statNum: { fontSize: 24, fontWeight: '800', color: colors.textPrimary },
+  statLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
 
   section: { marginHorizontal: 16, marginTop: 16 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
 
   chairCard: { borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1 },
-  chairOccupied: { backgroundColor: '#E7F3FF', borderColor: '#B6D4FE' },
-  chairEmpty: { backgroundColor: '#fff', borderColor: '#E9ECEF' },
-  chairsLoader: { backgroundColor: '#fff', borderColor: '#E9ECEF', borderWidth: 1, borderRadius: 12, padding: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  chairsLoaderText: { fontSize: 14, color: '#6C757D' },
+  chairOccupied: { backgroundColor: colors.brandPrimaryLight, borderColor: colors.brandPrimaryBorder },
+  chairEmpty: { backgroundColor: colors.white, borderColor: colors.border },
+  chairsLoader: { backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1, borderRadius: 12, padding: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  chairsLoaderText: { fontSize: 14, color: colors.textSecondary },
   chairHeader: { marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  chairLabel: { fontSize: 15, fontWeight: '700', color: '#495057' },
-  chairBarberName: { fontSize: 13, color: '#6C757D', fontStyle: 'italic' },
+  chairLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+  chairBarberName: { fontSize: 13, color: colors.textSecondary, fontStyle: 'italic' },
   chairBody: {},
   chairCustomer: { marginBottom: 12 },
-  chairToken: { fontSize: 28, fontWeight: '800', color: '#007BFF' },
-  chairName: { fontSize: 16, color: '#1A1A2E', marginTop: 4 },
-  chairEmptyText: { fontSize: 15, color: '#ADB5BD' },
+  chairToken: { fontFamily: fontFamilies.display, fontSize: typography.size.display, fontWeight: typography.weight.extrabold, color: colors.brandPrimary, letterSpacing: typography.tracking.wide },
+  chairName: { fontSize: 16, color: colors.textPrimary, marginTop: 4 },
+  chairEmptyText: { fontSize: 15, color: colors.textMuted },
   chairActions: { flexDirection: 'row', gap: 8 },
-  btnStart: { backgroundColor: '#17A2B8', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnSkip: { backgroundColor: '#FD7E14', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnDone: { backgroundColor: '#28A745', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnStart: { backgroundColor: colors.info, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnSkip: { backgroundColor: colors.warning, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnDone: { backgroundColor: colors.success, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnDisabled: { opacity: 0.5 },
-  btnActionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  btnCallNext: { backgroundColor: '#007BFF', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 8 },
-  btnCallNextText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  btnActionText: { color: colors.white, fontSize: 13, fontWeight: '700' },
+  btnCallNext: { backgroundColor: colors.brandPrimary, padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 8 },
+  btnCallNextText: { color: colors.white, fontSize: 14, fontWeight: '700' },
 
-  timerText: { fontSize: 12, color: '#17A2B8', fontWeight: '600', marginTop: 4 },
-  timerExpired: { color: '#DC3545' },
-  serviceStarted: { fontSize: 12, color: '#28A745', fontWeight: '600', marginTop: 4 },
+  timerText: { fontSize: 12, color: colors.info, fontWeight: '600', marginTop: 4 },
+  timerExpired: { color: colors.danger },
+  serviceStarted: { fontSize: 12, color: colors.success, fontWeight: '600', marginTop: 4 },
 
-  waitingItem: { flexDirection: 'row', backgroundColor: '#fff', padding: 14, borderRadius: 10, marginBottom: 8, alignItems: 'center', borderWidth: 1, borderColor: '#E9ECEF' },
-  waitingToken: { fontSize: 18, fontWeight: '700', color: '#007BFF', width: 50 },
+  waitingItem: { flexDirection: 'row', backgroundColor: colors.white, padding: 14, borderRadius: 10, marginBottom: 8, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+  waitingToken: { fontSize: 18, fontWeight: '700', color: colors.brandPrimary, width: 50 },
   waitingInfo: { flex: 1 },
-  waitingName: { fontSize: 15, color: '#1A1A2E' },
-  waitingBarber: { fontSize: 12, color: '#6C757D', marginTop: 2 },
-  emptyText: { fontSize: 14, color: '#ADB5BD', fontStyle: 'italic' },
+  waitingName: { fontSize: 15, color: colors.textPrimary },
+  waitingBarber: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  emptyText: { fontSize: 14, color: colors.textMuted, fontStyle: 'italic' },
 
   // Barber filter styles
-  filterSection: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
-  filterLabel: { fontSize: 14, color: '#495057', marginRight: 8 },
-  filterDropdown: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0F0F0', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, flex: 1, justifyContent: 'space-between' },
-  filterDropdownText: { fontSize: 14, color: '#1A1A2E' },
-  filterDropdownArrow: { fontSize: 10, color: '#6C757D', marginLeft: 8 },
-  clearFilterBtn: { marginLeft: 10, backgroundColor: '#F8D7DA', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  clearFilterText: { fontSize: 12, color: '#DC3545', fontWeight: '600' },
+  filterSection: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
+  filterLabel: { fontSize: 14, color: colors.textPrimary, marginRight: 8 },
+  filterDropdown: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, flex: 1, justifyContent: 'space-between' },
+  filterDropdownText: { fontSize: 14, color: colors.textPrimary },
+  filterDropdownArrow: { fontSize: 10, color: colors.textSecondary, marginLeft: 8 },
+  clearFilterBtn: { marginLeft: 10, backgroundColor: colors.dangerBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  clearFilterText: { fontSize: 12, color: colors.danger, fontWeight: '600' },
 
   // Barber picker modal styles
-  pickerBox: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%', maxWidth: 360, maxHeight: '70%' },
-  pickerTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginBottom: 16, textAlign: 'center' },
+  pickerBox: { backgroundColor: colors.white, borderRadius: 16, padding: 20, width: '85%', maxWidth: 360, maxHeight: '70%' },
+  pickerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 16, textAlign: 'center' },
   pickerList: { maxHeight: 300 },
-  pickerItem: { padding: 14, borderRadius: 8, marginBottom: 8, backgroundColor: '#F8F9FA' },
-  pickerItemSelected: { backgroundColor: '#007BFF' },
-  pickerItemText: { fontSize: 15, color: '#1A1A2E' },
-  pickerItemTextSelected: { color: '#fff', fontWeight: '600' },
-  pickerCancel: { padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#F0F0F0', marginTop: 12 },
-  pickerCancelText: { color: '#333', fontSize: 15, fontWeight: '600' },
+  pickerItem: { padding: 14, borderRadius: 8, marginBottom: 8, backgroundColor: colors.bg },
+  pickerItemSelected: { backgroundColor: colors.brandPrimary },
+  pickerItemText: { fontSize: 15, color: colors.textPrimary },
+  pickerItemTextSelected: { color: colors.white, fontWeight: '600' },
+  pickerCancel: { padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.surfaceAlt, marginTop: 12 },
+  pickerCancelText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
 
   addRow: { flexDirection: 'row', gap: 10 },
-  btnAdd: { backgroundColor: '#28A745', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 8 },
-  btnAddText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  btnAdd: { backgroundColor: colors.success, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 8 },
+  btnAddText: { color: colors.white, fontSize: 14, fontWeight: '700' },
 
   // Add customer barber selection styles
   addBarberRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
-  addBarberLabel: { fontSize: 13, color: '#495057', marginRight: 8 },
-  addBarberDropdown: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#CED4DA', flex: 1, justifyContent: 'space-between' },
-  addBarberDropdownText: { fontSize: 14, color: '#1A1A2E' },
+  addBarberLabel: { fontSize: 13, color: colors.textPrimary, marginRight: 8 },
+  addBarberDropdown: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.border, flex: 1, justifyContent: 'space-between' },
+  addBarberDropdownText: { fontSize: 14, color: colors.textPrimary },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalBox: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 8, textAlign: 'center' },
-  modalMsg: { fontSize: 15, color: '#6C757D', marginBottom: 20, textAlign: 'center' },
+  modalBox: { backgroundColor: colors.white, borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 8, textAlign: 'center' },
+  modalMsg: { fontSize: 15, color: colors.textSecondary, marginBottom: 20, textAlign: 'center' },
   modalBtns: { flexDirection: 'row', gap: 12 },
-  mCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#F0F0F0' },
-  mConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#28A745' },
-  mConfirmDanger: { backgroundColor: '#DC3545' },
-  mCancelText: { color: '#333', fontSize: 15, fontWeight: '600' },
-  mConfirmText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  mCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.surfaceAlt },
+  mConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.success },
+  mConfirmDanger: { backgroundColor: colors.danger },
+  mCancelText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  mConfirmText: { color: colors.white, fontSize: 15, fontWeight: '600' },
 });

@@ -10,8 +10,11 @@ import {
   Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView, KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { getBackendBaseUrl } from '../lib/backendUrl';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
+import { colors, fontFamilies, typography } from '../lib/theme';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const ADMIN_AUTH_KEY = '@admin_authed';
@@ -47,6 +50,9 @@ interface Barber {
 }
 
 export default function Admin() {
+  // Bottom safe-area inset so the bottom of every ScrollView clears the
+  // Android 3-button nav / iOS home indicator.
+  const insets = useSafeAreaInsets();
   const [isAuth, setIsAuth] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -414,13 +420,17 @@ export default function Admin() {
 
   // Loading state
   if (loading) {
-    return <View style={st.center}><ActivityIndicator size="large" color="#007BFF" /></View>;
+    return <View style={st.center}><ActivityIndicator size="large" color={colors.brandPrimary} /></View>;
   }
 
   // Login screen (Username + Password only)
   if (!isAuth) {
     return (
-      <ScrollView style={st.container} contentContainerStyle={st.scrollPad}>
+      <KeyboardAwareScrollView
+        style={st.container}
+        contentContainerStyle={[st.scrollPad, { paddingBottom: 16 + insets.bottom }]}
+        bottomOffset={24}
+      >
         <View style={st.headerSection}>
           <Text style={st.brand}>Quevix</Text>
           <Text style={st.brandSub}>Smart Queue Platform</Text>
@@ -433,7 +443,7 @@ export default function Admin() {
             value={username}
             onChangeText={(t) => { setUsername(t); setLoginError(''); }}
             placeholder="Enter username"
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textPlaceholder}
             autoCapitalize="none"
           />
           <Text style={st.cardLabel}>Password</Text>
@@ -442,7 +452,7 @@ export default function Admin() {
             value={password}
             onChangeText={(t) => { setPassword(t); setLoginError(''); }}
             placeholder="Enter password"
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textPlaceholder}
             secureTextEntry
           />
           {loginError ? <Text style={st.errorText}>{loginError}</Text> : null}
@@ -450,14 +460,18 @@ export default function Admin() {
             <Text style={st.btnText}>LOGIN</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     );
   }
 
   // Shop Detail View
   if (selectedShop) {
     return (
-      <ScrollView style={st.container}>
+      <KeyboardAwareScrollView
+        style={st.container}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
+        bottomOffset={24}
+      >
         <View style={st.headerBar}>
           <TouchableOpacity onPress={() => { setSelectedShop(null); setEditMode(false); }}>
             <Text style={st.backBtn}>← Back</Text>
@@ -502,7 +516,7 @@ export default function Admin() {
             onPress={handleToggleShopStatus}
           >
             {isBusy('toggle-shop')
-              ? <ActivityIndicator color="#fff" />
+              ? <ActivityIndicator color={colors.white} />
               : <Text style={st.btnText}>{selectedShop.isOpen ? 'CLOSE SHOP' : 'OPEN SHOP'}</Text>}
           </TouchableOpacity>
         </View>
@@ -533,7 +547,7 @@ export default function Admin() {
                 value={editShopData?.name || ''}
                 onChangeText={(t) => setEditShopData({ ...editShopData, name: t })}
                 placeholder="Shop Name"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textPlaceholder}
               />
               <Text style={st.formLabel}>Username</Text>
               <TextInput
@@ -541,7 +555,7 @@ export default function Admin() {
                 value={editShopData?.username || ''}
                 onChangeText={(t) => setEditShopData({ ...editShopData, username: t })}
                 placeholder="Username"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textPlaceholder}
                 autoCapitalize="none"
               />
               <Text style={st.formLabel}>New Password (leave blank to keep)</Text>
@@ -550,7 +564,7 @@ export default function Admin() {
                 value={editShopData?.password || ''}
                 onChangeText={(t) => setEditShopData({ ...editShopData, password: t })}
                 placeholder="New password"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textPlaceholder}
                 secureTextEntry
               />
               <View style={st.row}>
@@ -561,7 +575,7 @@ export default function Admin() {
                     value={editShopData?.openTime || ''}
                     onChangeText={(t) => setEditShopData({ ...editShopData, openTime: t })}
                     placeholder="9:00 AM"
-                    placeholderTextColor="#999"
+                    placeholderTextColor={colors.textPlaceholder}
                   />
                 </View>
                 <View style={st.half}>
@@ -571,7 +585,7 @@ export default function Admin() {
                     value={editShopData?.closeTime || ''}
                     onChangeText={(t) => setEditShopData({ ...editShopData, closeTime: t })}
                     placeholder="10:00 PM"
-                    placeholderTextColor="#999"
+                    placeholderTextColor={colors.textPlaceholder}
                   />
                 </View>
               </View>
@@ -652,7 +666,7 @@ export default function Admin() {
                   disabled={isBusy('update-shop')}
                   onPress={handleUpdateShop}
                 >
-                  {isBusy('update-shop') ? <ActivityIndicator color="#fff" /> : <Text style={st.btnText}>SAVE</Text>}
+                  {isBusy('update-shop') ? <ActivityIndicator color={colors.white} /> : <Text style={st.btnText}>SAVE</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -673,7 +687,7 @@ export default function Admin() {
               value={tokenToRemove}
               onChangeText={setTokenToRemove}
               placeholder="Token #"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.textPlaceholder}
               keyboardType="number-pad"
             />
             <TouchableOpacity style={st.btnRemove} onPress={() => setShowRemoveTokenModal(true)}>
@@ -706,7 +720,7 @@ export default function Admin() {
                     onPress={() => handleDeleteBarber(barber.id, barber.name)}
                   >
                     {isBusy(`delete-barber:${barber.id}`)
-                      ? <ActivityIndicator color="#DC3545" size="small" />
+                      ? <ActivityIndicator color={colors.danger} size="small" />
                       : <Text style={st.barberDeleteText}>Remove</Text>}
                   </TouchableOpacity>
                 </View>
@@ -799,7 +813,7 @@ export default function Admin() {
                   disabled={isBusy('reset-session')}
                   onPress={handleResetSession}
                 >
-                  {isBusy('reset-session') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Reset</Text>}
+                  {isBusy('reset-session') ? <ActivityIndicator color={colors.white} /> : <Text style={st.mConfirmText}>Reset</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -820,7 +834,7 @@ export default function Admin() {
                   disabled={isBusy('remove-token')}
                   onPress={handleRemoveToken}
                 >
-                  {isBusy('remove-token') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Remove</Text>}
+                  {isBusy('remove-token') ? <ActivityIndicator color={colors.white} /> : <Text style={st.mConfirmText}>Remove</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -841,7 +855,7 @@ export default function Admin() {
                   disabled={isBusy('reset-day')}
                   onPress={handleResetDay}
                 >
-                  {isBusy('reset-day') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Reset</Text>}
+                  {isBusy('reset-day') ? <ActivityIndicator color={colors.white} /> : <Text style={st.mConfirmText}>Reset</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -862,7 +876,7 @@ export default function Admin() {
                   disabled={isBusy('delete-shop')}
                   onPress={handleDeleteShop}
                 >
-                  {isBusy('delete-shop') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Delete</Text>}
+                  {isBusy('delete-shop') ? <ActivityIndicator color={colors.white} /> : <Text style={st.mConfirmText}>Delete</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -871,7 +885,8 @@ export default function Admin() {
 
         {/* Add Barber Modal */}
         <Modal visible={showAddBarberModal} transparent animationType="fade">
-          <View style={st.overlay}>
+          {/* KeyboardAvoidingView lifts the modal box above the keyboard with a smooth native animation. */}
+          <KeyboardAvoidingView behavior="padding" style={st.overlay}>
             <View style={st.modalBox}>
               <Text style={st.modalTitle}>Add Barber</Text>
               <Text style={st.formLabel}>Barber Name</Text>
@@ -880,7 +895,7 @@ export default function Admin() {
                 value={newBarberName}
                 onChangeText={setNewBarberName}
                 placeholder="Enter barber name"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textPlaceholder}
               />
               <View style={st.modalBtns}>
                 <TouchableOpacity style={st.mCancel} onPress={() => { setShowAddBarberModal(false); setNewBarberName(''); }}>
@@ -891,19 +906,19 @@ export default function Admin() {
                   disabled={isBusy('add-barber')}
                   onPress={handleAddBarber}
                 >
-                  {isBusy('add-barber') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Add</Text>}
+                  {isBusy('add-barber') ? <ActivityIndicator color={colors.white} /> : <Text style={st.mConfirmText}>Add</Text>}
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     );
   }
 
   // Main Shop List View
   return (
-    <ScrollView style={st.container}>
+    <ScrollView style={st.container} contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}>
       <View style={st.headerBar}>
         <View>
           <Text style={st.brand}>Quevix</Text>
@@ -955,9 +970,9 @@ export default function Admin() {
 
       <View style={{ height: 40 }} />
 
-      {/* Create Shop Modal */}
+      {/* Create Shop Modal — KeyboardAvoidingView so the long form lifts above the keyboard. */}
       <Modal visible={showCreateModal} transparent animationType="fade">
-        <View style={st.overlay}>
+        <KeyboardAvoidingView behavior="padding" style={st.overlay}>
           <View style={st.modalBoxLarge}>
             <Text style={st.modalTitle}>Create New Shop</Text>
             <ScrollView style={st.modalScroll}>
@@ -967,7 +982,7 @@ export default function Admin() {
                 value={newShop.shopId}
                 onChangeText={(t) => setNewShop({ ...newShop, shopId: t.toLowerCase().replace(/\s/g, '') })}
                 placeholder="e.g. style, royal"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textPlaceholder}
                 autoCapitalize="none"
               />
               <Text style={st.formLabel}>Shop Name*</Text>
@@ -976,7 +991,7 @@ export default function Admin() {
                 value={newShop.name}
                 onChangeText={(t) => setNewShop({ ...newShop, name: t })}
                 placeholder="e.g. Style Salon"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textPlaceholder}
               />
               <Text style={st.formLabel}>Login Username*</Text>
               <TextInput
@@ -984,7 +999,7 @@ export default function Admin() {
                 value={newShop.username}
                 onChangeText={(t) => setNewShop({ ...newShop, username: t })}
                 placeholder="Barber login username"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textPlaceholder}
                 autoCapitalize="none"
               />
               <Text style={st.formLabel}>Login Password*</Text>
@@ -993,7 +1008,7 @@ export default function Admin() {
                 value={newShop.password}
                 onChangeText={(t) => setNewShop({ ...newShop, password: t })}
                 placeholder="Barber login password"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textPlaceholder}
                 secureTextEntry
               />
               <View style={st.row}>
@@ -1004,7 +1019,7 @@ export default function Admin() {
                     value={newShop.openTime}
                     onChangeText={(t) => setNewShop({ ...newShop, openTime: t })}
                     placeholder="9:00 AM"
-                    placeholderTextColor="#999"
+                    placeholderTextColor={colors.textPlaceholder}
                   />
                 </View>
                 <View style={st.half}>
@@ -1014,7 +1029,7 @@ export default function Admin() {
                     value={newShop.closeTime}
                     onChangeText={(t) => setNewShop({ ...newShop, closeTime: t })}
                     placeholder="10:00 PM"
-                    placeholderTextColor="#999"
+                    placeholderTextColor={colors.textPlaceholder}
                   />
                 </View>
               </View>
@@ -1092,146 +1107,146 @@ export default function Admin() {
                 disabled={isBusy('create-shop')}
                 onPress={handleCreateShop}
               >
-                {isBusy('create-shop') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Create</Text>}
+                {isBusy('create-shop') ? <ActivityIndicator color={colors.white} /> : <Text style={st.mConfirmText}>Create</Text>}
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
 }
 
 const st = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   scrollPad: { padding: 16, paddingTop: 56 },
   headerSection: { marginBottom: 24 },
-  headerBar: { padding: 16, paddingTop: 56, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E9ECEF', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  brand: { fontSize: 24, fontWeight: '800', color: '#1A1A2E' },
-  brandSub: { fontSize: 13, color: '#6C757D', marginTop: 2 },
-  subtitle: { fontSize: 15, color: '#495057', marginTop: 8 },
-  backBtn: { fontSize: 16, color: '#007BFF', fontWeight: '600' },
-  shopTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E' },
-  logoutBtn: { backgroundColor: '#F0F0F0', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
-  logoutText: { fontSize: 14, color: '#DC3545', fontWeight: '600' },
+  headerBar: { padding: 16, paddingTop: 56, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  brand: { fontFamily: fontFamilies.display, fontSize: typography.size.h1 + 2, fontWeight: typography.weight.extrabold, color: colors.textPrimary, letterSpacing: typography.tracking.wider },
+  brandSub: { fontFamily: fontFamilies.display, fontSize: typography.size.sm, color: colors.textSecondary, marginTop: 2, letterSpacing: typography.tracking.wide },
+  subtitle: { fontSize: 15, color: colors.textPrimary, marginTop: 8 },
+  backBtn: { fontSize: 16, color: colors.brandPrimary, fontWeight: '600' },
+  shopTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
+  logoutBtn: { backgroundColor: colors.surfaceAlt, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  logoutText: { fontSize: 14, color: colors.danger, fontWeight: '600' },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E9ECEF' },
-  cardLabel: { fontSize: 15, fontWeight: '600', color: '#495057', marginBottom: 8, marginTop: 12 },
-  input: { borderWidth: 1, borderColor: '#CED4DA', borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 8, backgroundColor: '#fff' },
-  errorText: { color: '#DC3545', fontSize: 13, marginBottom: 8 },
+  card: { backgroundColor: colors.white, borderRadius: 12, padding: 20, borderWidth: 1, borderColor: colors.border },
+  cardLabel: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 8, marginTop: 12 },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 8, backgroundColor: colors.white },
+  errorText: { color: colors.danger, fontSize: 13, marginBottom: 8 },
 
   section: { marginHorizontal: 16, marginTop: 16 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
   
-  btnPrimary: { backgroundColor: '#007BFF', padding: 16, borderRadius: 10, alignItems: 'center' },
-  btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  btnPrimary: { backgroundColor: colors.brandPrimary, padding: 16, borderRadius: 10, alignItems: 'center' },
+  btnText: { color: colors.white, fontSize: 15, fontWeight: '700' },
   btnDisabled: { opacity: 0.5 },
-  btnSuccess: { backgroundColor: '#28A745', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-  btnDanger: { backgroundColor: '#DC3545', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-  btnWarning: { backgroundColor: '#FD7E14', padding: 16, borderRadius: 10, alignItems: 'center' },
-  btnOutline: { backgroundColor: '#fff', padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 2, borderColor: '#007BFF' },
-  btnOutlineText: { color: '#007BFF', fontSize: 15, fontWeight: '700' },
+  btnSuccess: { backgroundColor: colors.success, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
+  btnDanger: { backgroundColor: colors.danger, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
+  btnWarning: { backgroundColor: colors.warning, padding: 16, borderRadius: 10, alignItems: 'center' },
+  btnOutline: { backgroundColor: colors.white, padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 2, borderColor: colors.brandPrimary },
+  btnOutlineText: { color: colors.brandPrimary, fontSize: 15, fontWeight: '700' },
   btnToggle: { padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 16 },
-  btnRemove: { backgroundColor: '#FD7E14', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 8, marginLeft: 10 },
-  btnDeleteShop: { backgroundColor: '#6C757D', padding: 16, borderRadius: 10, alignItems: 'center' },
+  btnRemove: { backgroundColor: colors.warning, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 8, marginLeft: 10 },
+  btnDeleteShop: { backgroundColor: colors.textSecondary, padding: 16, borderRadius: 10, alignItems: 'center' },
 
-  toast: { backgroundColor: '#28A745', padding: 14, marginHorizontal: 16, marginTop: 8, borderRadius: 10, alignItems: 'center' },
-  toastText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  helper: { fontSize: 12, color: '#6C757D', marginTop: 6, fontStyle: 'italic' },
+  toast: { backgroundColor: colors.success, padding: 14, marginHorizontal: 16, marginTop: 8, borderRadius: 10, alignItems: 'center' },
+  toastText: { color: colors.white, fontSize: 14, fontWeight: '600' },
+  helper: { fontSize: 12, color: colors.textSecondary, marginTop: 6, fontStyle: 'italic' },
 
-  statusCard: { backgroundColor: '#fff', margin: 16, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#E9ECEF' },
-  statusRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  statusLabel: { fontSize: 15, color: '#6C757D' },
-  statusValue: { fontSize: 15, fontWeight: '600', color: '#1A1A2E' },
-  green: { color: '#28A745' },
-  red: { color: '#DC3545' },
-  qrUrl: { color: '#007BFF' },
+  statusCard: { backgroundColor: colors.white, margin: 16, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
+  statusRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.surfaceAlt },
+  statusLabel: { fontSize: 15, color: colors.textSecondary },
+  statusValue: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  green: { color: colors.success },
+  red: { color: colors.danger },
+  qrUrl: { color: colors.brandPrimary },
 
-  shopCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#E9ECEF' },
+  shopCard: { backgroundColor: colors.white, borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
   shopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  shopName: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
+  shopName: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
   shopStatus: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-  statusOpen: { backgroundColor: '#D4EDDA' },
-  statusClosed: { backgroundColor: '#F8D7DA' },
+  statusOpen: { backgroundColor: colors.successBg },
+  statusClosed: { backgroundColor: colors.dangerBg },
   shopStatusText: { fontSize: 12, fontWeight: '700' },
-  shopId: { fontSize: 13, color: '#007BFF', marginBottom: 4 },
-  shopInfo: { fontSize: 13, color: '#6C757D', marginBottom: 2 },
-  tapHint: { fontSize: 12, color: '#17A2B8', marginTop: 8, fontWeight: '600' },
+  shopId: { fontSize: 13, color: colors.brandPrimary, marginBottom: 4 },
+  shopInfo: { fontSize: 13, color: colors.textSecondary, marginBottom: 2 },
+  tapHint: { fontSize: 12, color: colors.info, marginTop: 8, fontWeight: '600' },
 
-  emptyCard: { backgroundColor: '#fff', borderRadius: 12, padding: 32, alignItems: 'center', borderWidth: 1, borderColor: '#E9ECEF' },
-  emptyText: { fontSize: 18, color: '#6C757D', fontWeight: '600' },
-  emptyHint: { fontSize: 14, color: '#ADB5BD', marginTop: 8 },
+  emptyCard: { backgroundColor: colors.white, borderRadius: 12, padding: 32, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+  emptyText: { fontSize: 18, color: colors.textSecondary, fontWeight: '600' },
+  emptyHint: { fontSize: 14, color: colors.textMuted, marginTop: 8 },
 
-  editForm: { backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E9ECEF' },
-  formLabel: { fontSize: 13, fontWeight: '600', color: '#495057', marginBottom: 4, marginTop: 12 },
+  editForm: { backgroundColor: colors.white, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.border },
+  formLabel: { fontSize: 13, fontWeight: '600', color: colors.textPrimary, marginBottom: 4, marginTop: 12 },
   row: { flexDirection: 'row', gap: 12 },
   half: { flex: 1 },
   editBtns: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  btnCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#F0F0F0' },
-  btnCancelText: { color: '#333', fontSize: 15, fontWeight: '600' },
-  btnSave: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#28A745' },
+  btnCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.surfaceAlt },
+  btnCancelText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  btnSave: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.success },
 
   tokenRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, marginBottom: 12 },
 
-  statsCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E9ECEF' },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  statLabel: { fontSize: 15, color: '#6C757D' },
-  statValue: { fontSize: 15, fontWeight: '700', color: '#1A1A2E' },
+  statsCard: { backgroundColor: colors.white, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.border },
+  statRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.surfaceAlt },
+  statLabel: { fontSize: 15, color: colors.textSecondary },
+  statValue: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
 
-  dailyList: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E9ECEF' },
-  dailyHeader: { flexDirection: 'row', paddingBottom: 8, borderBottomWidth: 2, borderBottomColor: '#E9ECEF' },
-  dailyHeaderText: { flex: 1, fontSize: 13, fontWeight: '700', color: '#6C757D', textAlign: 'center' },
-  dailyRow: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  dailyDate: { flex: 1, fontSize: 14, color: '#1A1A2E', textAlign: 'center' },
-  dailyTotal: { flex: 1, fontSize: 15, fontWeight: '700', color: '#1A1A2E', textAlign: 'center' },
-  dailyDone: { flex: 1, fontSize: 15, fontWeight: '700', color: '#28A745', textAlign: 'center' },
+  dailyList: { backgroundColor: colors.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border },
+  dailyHeader: { flexDirection: 'row', paddingBottom: 8, borderBottomWidth: 2, borderBottomColor: colors.border },
+  dailyHeaderText: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.textSecondary, textAlign: 'center' },
+  dailyRow: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.surfaceAlt },
+  dailyDate: { flex: 1, fontSize: 14, color: colors.textPrimary, textAlign: 'center' },
+  dailyTotal: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.textPrimary, textAlign: 'center' },
+  dailyDone: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.success, textAlign: 'center' },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalBox: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
-  modalBoxLarge: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, maxHeight: '80%' },
+  modalBox: { backgroundColor: colors.white, borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
+  modalBoxLarge: { backgroundColor: colors.white, borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, maxHeight: '80%' },
   modalScroll: { maxHeight: 400, marginBottom: 16 },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 8, textAlign: 'center' },
-  modalMsg: { fontSize: 15, color: '#6C757D', marginBottom: 20, textAlign: 'center' },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 8, textAlign: 'center' },
+  modalMsg: { fontSize: 15, color: colors.textSecondary, marginBottom: 20, textAlign: 'center' },
   modalBtns: { flexDirection: 'row', gap: 12 },
-  mCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#F0F0F0' },
-  mConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#28A745' },
-  mConfirmDanger: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: '#DC3545' },
-  mCancelText: { color: '#333', fontSize: 15, fontWeight: '600' },
-  mConfirmText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  mCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.surfaceAlt },
+  mConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.success },
+  mConfirmDanger: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.danger },
+  mCancelText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  mConfirmText: { color: colors.white, fontSize: 15, fontWeight: '600' },
 
   // Barber management styles
-  barbersList: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E9ECEF', marginBottom: 12 },
-  barberItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  barbersList: { backgroundColor: colors.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border, marginBottom: 12 },
+  barberItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.surfaceAlt },
   barberInfo: { flex: 1 },
-  barberName: { fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
-  barberChair: { fontSize: 13, color: '#6C757D', marginTop: 2 },
-  barberDeleteBtn: { backgroundColor: '#F8D7DA', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
-  barberDeleteText: { fontSize: 12, color: '#DC3545', fontWeight: '600' },
-  emptyBarbers: { fontSize: 14, color: '#ADB5BD', fontStyle: 'italic', marginBottom: 12 },
-  btnAddBarber: { backgroundColor: '#17A2B8', padding: 14, borderRadius: 10, alignItems: 'center' },
+  barberName: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
+  barberChair: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  barberDeleteBtn: { backgroundColor: colors.dangerBg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+  barberDeleteText: { fontSize: 12, color: colors.danger, fontWeight: '600' },
+  emptyBarbers: { fontSize: 14, color: colors.textMuted, fontStyle: 'italic', marginBottom: 12 },
+  btnAddBarber: { backgroundColor: colors.info, padding: 14, borderRadius: 10, alignItems: 'center' },
 
   // Chair selector styles
-  chairSelector: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8F9FA', borderRadius: 8, borderWidth: 1, borderColor: '#CED4DA', padding: 8 },
-  chairBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#007BFF', justifyContent: 'center', alignItems: 'center' },
-  chairBtnText: { color: '#fff', fontSize: 20, fontWeight: '700' },
-  chairCount: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginHorizontal: 16, minWidth: 24, textAlign: 'center' },
+  chairSelector: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, borderRadius: 8, borderWidth: 1, borderColor: colors.border, padding: 8 },
+  chairBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.brandPrimary, justifyContent: 'center', alignItems: 'center' },
+  chairBtnText: { color: colors.white, fontSize: 20, fontWeight: '700' },
+  chairCount: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginHorizontal: 16, minWidth: 24, textAlign: 'center' },
 
   // Timer toggle styles
   timerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   timerInput: { flex: 1 },
-  inputDisabled: { backgroundColor: '#E9ECEF', color: '#6C757D' },
-  timerToggle: { backgroundColor: '#DC3545', paddingHorizontal: 10, paddingVertical: 12, borderRadius: 8 },
-  timerToggleOff: { backgroundColor: '#28A745' },
-  timerToggleText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  inputDisabled: { backgroundColor: colors.border, color: colors.textSecondary },
+  timerToggle: { backgroundColor: colors.danger, paddingHorizontal: 10, paddingVertical: 12, borderRadius: 8 },
+  timerToggleOff: { backgroundColor: colors.success },
+  timerToggleText: { color: colors.white, fontSize: 12, fontWeight: '700' },
 
   // New timer control styles
   timerControl: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   timerToggleBtn: { flex: 1, paddingVertical: 14, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  timerOn: { backgroundColor: '#28A745' },
-  timerOff: { backgroundColor: '#DC3545' },
-  timerToggleBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  timerOn: { backgroundColor: colors.success },
+  timerOff: { backgroundColor: colors.danger },
+  timerToggleBtnText: { color: colors.white, fontSize: 14, fontWeight: '700' },
   timerAdjust: { flexDirection: 'row', gap: 4 },
-  timerAdjustBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#007BFF', justifyContent: 'center', alignItems: 'center' },
-  timerAdjustText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  timerAdjustBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: colors.brandPrimary, justifyContent: 'center', alignItems: 'center' },
+  timerAdjustText: { color: colors.white, fontSize: 18, fontWeight: '700' },
 });

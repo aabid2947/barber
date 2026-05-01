@@ -6,12 +6,15 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
-  Platform,
   StatusBar,
   AppState,
 } from 'react-native';
 import { Slot, useRouter, usePathname } from 'expo-router';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { useFonts } from 'expo-font';
 import { ensureForegroundNotificationHandler, requestNotificationPermission } from '../lib/mobileNotifications';
+import { colors, fontFamilies, typography } from '../lib/theme';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = Math.min(280, SCREEN_WIDTH * 0.75);
@@ -29,11 +32,34 @@ function getPageTitle(pathname: string): string {
 }
 
 export default function Layout() {
+  // Load the bundled SpaceMono ttf so fontFamilies.display resolves at runtime.
+  // Until the font is ready we still render — the body text stays on system font and
+  // the display text simply gets the system fallback, which is fine for the brief load.
+  useFonts({
+    'SpaceMono-Regular': require('../assets/fonts/SpaceMono-Regular.ttf'),
+  });
+
+  // SafeAreaProvider must wrap the tree so useSafeAreaInsets works in every screen.
+  // KeyboardProvider sits inside the safe-area provider and powers the smooth
+  // native keyboard-avoidance used by KeyboardAwareScrollView in each screen.
+  return (
+    <SafeAreaProvider>
+      <KeyboardProvider>
+        <LayoutInner />
+      </KeyboardProvider>
+    </SafeAreaProvider>
+  );
+}
+
+function LayoutInner() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const router = useRouter();
   const pathname = usePathname();
+  // insets.top -> status bar / notch / Dynamic Island.
+  // insets.bottom -> Android 3-button nav bar / iOS home indicator.
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     console.log('[FCM] App layout mounted, setting up message handlers...');
@@ -89,10 +115,12 @@ export default function Layout() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1A1A2E" />
+      {/* translucent so the dark header colour extends behind the status bar; insets.top
+          gives us the exact pixels to push header content past the notch / status bar. */}
+      <StatusBar barStyle="light-content" backgroundColor={colors.darkSurface} translucent />
 
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Header — paddingTop dynamic from insets so content clears the status bar / notch */}
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={openDrawer} style={styles.hamburger}>
           <Text style={styles.hamburgerIcon}>☰</Text>
         </TouchableOpacity>
@@ -100,7 +128,8 @@ export default function Layout() {
         <View style={styles.headerRight} />
       </View>
 
-      {/* Page Content */}
+      {/* Page Content — bottom safe-area inset is applied per-screen via useSafeAreaInsets,
+          so each screen owns its own paddingBottom and can mix it with internal spacing. */}
       <View style={styles.content}>
         <Slot />
       </View>
@@ -116,7 +145,7 @@ export default function Layout() {
             <Animated.View
               style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: '#000', opacity: overlayAnim },
+                { backgroundColor: colors.black, opacity: overlayAnim },
               ]}
             />
           </TouchableOpacity>
@@ -127,8 +156,8 @@ export default function Layout() {
               { transform: [{ translateX: slideAnim }] },
             ]}
           >
-            {/* Drawer Header */}
-            <View style={styles.drawerHeader}>
+            {/* Drawer Header — top inset so logo doesn't sit under the status bar */}
+            <View style={[styles.drawerHeader, { paddingTop: insets.top + 16 }]}>
               <Text style={styles.drawerLogo}>💈</Text>
               <Text style={styles.drawerTitle}>Quevix</Text>
               <Text style={styles.drawerSubtitle}>Smart Queue Platform</Text>
@@ -152,8 +181,8 @@ export default function Layout() {
               })}
             </View>
 
-            {/* Drawer Footer */}
-            <View style={styles.drawerFooter}>
+            {/* Drawer Footer — bottom inset so footer text clears the nav bar */}
+            <View style={[styles.drawerFooter, { paddingBottom: insets.bottom + 20 }]}>
               <Text style={styles.footerText}>v1.0.0</Text>
             </View>
           </Animated.View>
@@ -166,17 +195,17 @@ export default function Layout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0D0D1A',
+    backgroundColor: colors.darkBg,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A1A2E',
-    paddingTop: Platform.OS === 'ios' ? 50 : 12,
+    backgroundColor: colors.darkSurface,
+    // paddingTop is applied inline from insets.top so the header clears the status bar / notch.
     paddingBottom: 12,
     paddingHorizontal: 16,
     elevation: 4,
-    shadowColor: '#000',
+    shadowColor: colors.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -189,11 +218,11 @@ const styles = StyleSheet.create({
   },
   hamburgerIcon: {
     fontSize: 24,
-    color: '#fff',
+    color: colors.white,
   },
   headerTitle: {
     flex: 1,
-    color: '#fff',
+    color: colors.white,
     fontSize: 18,
     fontWeight: '700',
     textAlign: 'center',
@@ -210,20 +239,20 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     width: DRAWER_WIDTH,
-    backgroundColor: '#1A1A2E',
+    backgroundColor: colors.darkSurface,
     elevation: 10,
-    shadowColor: '#000',
+    shadowColor: colors.black,
     shadowOffset: { width: 2, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 10,
     zIndex: 100,
   },
   drawerHeader: {
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    // paddingTop applied inline from insets.top so the drawer logo clears the status bar / notch.
     paddingBottom: 24,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    borderBottomColor: colors.drawerBorder,
     alignItems: 'center',
   },
   drawerLogo: {
@@ -231,14 +260,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   drawerTitle: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: 1,
+    color: colors.white,
+    fontFamily: fontFamilies.display,
+    fontSize: typography.size.h1,
+    fontWeight: typography.weight.extrabold,
+    letterSpacing: typography.tracking.widest,
   },
   drawerSubtitle: {
-    color: '#6C757D',
-    fontSize: 13,
+    color: colors.textSecondary,
+    fontFamily: fontFamilies.display,
+    fontSize: typography.size.sm,
+    letterSpacing: typography.tracking.wide,
     marginTop: 4,
   },
   drawerMenu: {
@@ -253,24 +285,26 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   menuItemActive: {
-    backgroundColor: 'rgba(0,123,255,0.15)',
+    backgroundColor: colors.brandPrimaryAlpha15,
   },
   menuLabel: {
-    color: '#ADB5BD',
+    color: colors.textMuted,
     fontSize: 16,
     fontWeight: '600',
   },
   menuLabelActive: {
-    color: '#007BFF',
+    color: colors.brandPrimary,
   },
   drawerFooter: {
-    padding: 20,
+    // paddingBottom applied inline from insets.bottom so footer clears the nav bar / home indicator.
+    paddingTop: 20,
+    paddingHorizontal: 20,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
+    borderTopColor: colors.drawerBorder,
     alignItems: 'center',
   },
   footerText: {
-    color: '#6C757D',
+    color: colors.textSecondary,
     fontSize: 12,
   },
 });
