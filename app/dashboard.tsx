@@ -466,8 +466,11 @@ export default function Dashboard() {
     });
   };
 
-  // DONE with auto-next — optimistic UI owns the success path.
-  // Full dashboard reload happens ONLY on error; the 15s safety-net poll catches any drift.
+  // DONE with auto-next — optimistic UI updates instantly, then a fetchDashboard reconciles
+  // against backend truth. We always reconcile (not just on error) because the auto-promotion
+  // path on the server has barber-assignment rules that the local guess can't always reproduce
+  // (e.g. only waiting customer belongs to a different barber → backend skips promotion → our
+  // optimistic state would otherwise drift and require a manual refresh).
   const handleDone = async (entryId: string, tokenNum: number) => {
     if (!shopId) return;
     if (pendingActions.has(entryId)) return;
@@ -475,11 +478,9 @@ export default function Dashboard() {
     markPending(entryId);
     applyOptimisticComplete(entryId, 'completed');
     showToast(`✅ #${tokenNum} done.`);
-    let ok = false;
     try {
       const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/done/${entryId}`, { method: 'POST' });
-      ok = res.ok;
-      if (ok) {
+      if (res.ok) {
         const r = await res.json();
         if (r.autoStarted) showToast(`▶ Now serving #${r.autoStarted.tokenNumber}`);
       } else {
@@ -490,7 +491,7 @@ export default function Dashboard() {
       showToast('⚠ Network error — refreshing');
     } finally {
       clearPending(entryId);
-      if (!ok) fetchDashboard();
+      fetchDashboard();
     }
   };
 
@@ -521,7 +522,7 @@ export default function Dashboard() {
     }
   };
 
-  // SKIP - skip customer. Optimistic: remove entry and promote next. Reload only on error.
+  // SKIP - skip customer. Same reconcile-from-server pattern as DONE for the same reason.
   const handleSkip = async (entryId: string, tokenNum: number) => {
     if (!shopId) return;
     if (pendingActions.has(entryId)) return;
@@ -529,35 +530,33 @@ export default function Dashboard() {
     markPending(entryId);
     applyOptimisticComplete(entryId, 'skipped');
     showToast(`⏭ #${tokenNum} skipped.`);
-    let ok = false;
     try {
       const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/skip/${entryId}`, { method: 'POST' });
-      ok = res.ok;
-      if (ok) {
+      if (res.ok) {
         const r = await res.json();
         if (r.autoStarted) showToast(`▶ Now serving #${r.autoStarted.tokenNumber}`);
       }
     } catch (e) { console.error(e); }
     finally {
       clearPending(entryId);
-      if (!ok) fetchDashboard();
+      fetchDashboard();
     }
   };
 
+  // CALL NEXT — optimistic promote + always reconcile from server so the chair shows the
+  // exact entry the backend chose (chair number can differ from our local guess).
   const handleStartNext = async () => {
     if (!shopId) return;
     if (pendingActions.has(startNextKey)) return;
     markPending(startNextKey);
     applyOptimisticStartNext();
-    let ok = false;
     try {
       let url = `${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/start-next`;
       if (barberFilter) {
         url += `?barber_id=${barberFilter}`;
       }
       const res = await fetchWithRetry(url, { method: 'POST' });
-      ok = res.ok;
-      if (ok) {
+      if (res.ok) {
         const r = await res.json();
         showToast(`▶ Serving #${r.tokenNumber} (${r.name})`);
       } else {
@@ -567,7 +566,7 @@ export default function Dashboard() {
     } catch (e) { console.error(e); }
     finally {
       clearPending(startNextKey);
-      if (!ok) fetchDashboard();
+      fetchDashboard();
     }
   };
 
@@ -833,16 +832,26 @@ export default function Dashboard() {
                         disabled={pendingActions.has(serving.id)}
                         onPress={() => setConfirmModal({ visible: true, type: 'skip', entry: serving })}
                       >
-                        <Text style={s.btnActionText}>SKIP</Text>
+                        {pendingActions.has(serving.id)
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={s.btnActionText}>SKIP</Text>}
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[s.btnDone, pendingActions.has(serving.id) && s.btnDisabled]}
                         disabled={pendingActions.has(serving.id)}
                         onPress={() => setConfirmModal({ visible: true, type: 'done', entry: serving })}
                       >
-                        <Text style={s.btnActionText}>DONE</Text>
+                        {pendingActions.has(serving.id)
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={s.btnActionText}>DONE</Text>}
                       </TouchableOpacity>
                     </View>
+                    {pendingActions.has(serving.id) && (
+                      <View style={s.chairProcessing}>
+                        <ActivityIndicator size="small" color="#007BFF" />
+                        <Text style={s.chairProcessingText}>Processing…</Text>
+                      </View>
+                    )}
                   </View>
                 ) : (
                   <View style={s.chairBody}>
@@ -853,7 +862,9 @@ export default function Dashboard() {
                         disabled={pendingActions.has(startNextKey)}
                         onPress={handleStartNext}
                       >
-                        <Text style={s.btnCallNextText}>CALL NEXT</Text>
+                        {pendingActions.has(startNextKey)
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={s.btnCallNextText}>CALL NEXT</Text>}
                       </TouchableOpacity>
                     )}
                   </View>
@@ -1115,6 +1126,8 @@ const s = StyleSheet.create({
   chairToken: { fontSize: 28, fontWeight: '800', color: '#007BFF' },
   chairName: { fontSize: 16, color: '#1A1A2E', marginTop: 4 },
   chairEmptyText: { fontSize: 15, color: '#ADB5BD' },
+  chairProcessing: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  chairProcessingText: { fontSize: 13, color: '#6C757D', fontStyle: 'italic' },
   chairActions: { flexDirection: 'row', gap: 8 },
   btnStart: { backgroundColor: '#17A2B8', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnSkip: { backgroundColor: '#FD7E14', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
