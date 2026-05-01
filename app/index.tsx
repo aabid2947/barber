@@ -12,11 +12,13 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerMobilePushDevice } from '../lib/mobileNotifications';
 import { getBackendBaseUrl } from '../lib/backendUrl';
+import { fetchWithRetry } from '../lib/fetchWithRetry';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const MY_ENTRIES_KEY = '@my_queue_entries';
 const JOIN_HISTORY_KEY = '@join_history';
 const CUSTOMER_PUSH_TOKEN_KEY = '@customer_push_token';
+const SHOPS_CACHE_KEY = '@shops_cache_v1';
 const MAX_JOINS = 2;
 const COOLDOWN_MIN = 10;
 
@@ -75,6 +77,7 @@ export default function Index() {
   const [myEntries, setMyEntries] = useState<MyEntry[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
     fetchShops();
     loadMyEntries();
@@ -88,13 +91,31 @@ export default function Index() {
     return () => { if (interval) clearInterval(interval); };
   }, [joined, queueStatus]);
 
-  // Fetch all shops
+  // Fetch all shops — show cached list instantly, then refresh in the background.
   const fetchShops = async () => {
+    // 1) Hydrate from cache so the UI renders without waiting on the network.
     try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/admin/shops`);
+      const cached = await AsyncStorage.getItem(SHOPS_CACHE_KEY);
+      if (cached) {
+        const parsed: Shop[] = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setShops(parsed);
+          setLoadingShops(false);
+        }
+      }
+    } catch (e) {
+      // Cache read/parse failure is non-fatal — fall through to the network fetch.
+    }
+
+    // 2) Refresh from network. If cache already rendered, this just reconciles.
+    //    fetchWithRetry handles timeout + 2-retry backoff on slow/flaky networks.
+    try {
+      const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/admin/shops`);
       if (res.ok) {
         const data = await res.json();
-        setShops(data.shops || []);
+        const fresh: Shop[] = data.shops || [];
+        setShops(fresh);
+        AsyncStorage.setItem(SHOPS_CACHE_KEY, JSON.stringify(fresh)).catch(() => {});
       }
     } catch (e) {
       console.error('Fetch shops error:', e);
@@ -219,7 +240,7 @@ export default function Index() {
       console.log(`[JOIN] Sending join request to: ${joinUrl}`);
       console.log(`[JOIN] Body: ${JSON.stringify(joinBody)}`);
 
-      const res = await fetch(joinUrl, {
+      const res = await fetchWithRetry(joinUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(joinBody),
@@ -231,48 +252,54 @@ export default function Index() {
         const data = await res.json();
         console.log(`[JOIN] Join success: id=${data.id}, token=#${data.tokenNumber}, shopId=${data.shopId}`);
 
-        try {
-          console.log(`[FCM] Customer joined queue: entryId=${data.id}, token=#${data.tokenNumber}, shop=${selectedShop.shopId}`);
-          console.log('[FCM] Registering customer device for push notifications...');
-          const pushResult = await registerMobilePushDevice({
-            userType: 'customer',
-            shopId: selectedShop.shopId,
-            entryId: data.id,
-            backendUrl: EXPO_PUBLIC_BACKEND_URL,
-          });
-
-          if (pushResult.success && pushResult.token) {
-            await AsyncStorage.setItem(CUSTOMER_PUSH_TOKEN_KEY, pushResult.token);
-            console.log(`[FCM] Customer push registered! Token saved. Will receive notification when it's their turn.`);
-          } else {
-            console.warn('[FCM] Customer push registration skipped/failed:', pushResult.reason);
-          }
-
-          // notification logs now in console
-        } catch (pushError) {
-          console.error('Customer push registration failed:', pushError);
-          // notification logs now in console
-        }
-
+        // Flip UI immediately so the user sees their token — no awaits between here and render.
         setQueueStatus({ ...data, shopId: selectedShop.shopId });
         setJoined(true);
-        
-        // Save to my entries
-        const newEntry: MyEntry = { 
-          id: data.id, 
-          name: data.name, 
+        setLoading(false);
+
+        const newEntry: MyEntry = {
+          id: data.id,
+          name: data.name,
           tokenNumber: data.tokenNumber,
           shopId: selectedShop.shopId,
-          shopName: selectedShop.name
+          shopName: selectedShop.name,
         };
-        const updated = [...myEntries, newEntry];
-        await saveMyEntries(updated);
-        
-        // Update join history
-        const historyStr = await AsyncStorage.getItem(JOIN_HISTORY_KEY);
-        let history = historyStr ? JSON.parse(historyStr) : [];
-        history.push(new Date().toISOString());
-        await AsyncStorage.setItem(JOIN_HISTORY_KEY, JSON.stringify(history));
+        const updatedEntries = [...myEntries, newEntry];
+        setMyEntries(updatedEntries);
+
+        // Background work: push registration + persisted storage. Do NOT await — UI is already live.
+        (async () => {
+          try {
+            await AsyncStorage.setItem(MY_ENTRIES_KEY, JSON.stringify(updatedEntries));
+
+            const historyStr = await AsyncStorage.getItem(JOIN_HISTORY_KEY);
+            const history = historyStr ? JSON.parse(historyStr) : [];
+            history.push(new Date().toISOString());
+            await AsyncStorage.setItem(JOIN_HISTORY_KEY, JSON.stringify(history));
+          } catch (persistError) {
+            console.error('[JOIN] Persist error:', persistError);
+          }
+
+          try {
+            console.log(`[FCM] Registering customer device (background) for entryId=${data.id}`);
+            const pushResult = await registerMobilePushDevice({
+              userType: 'customer',
+              shopId: selectedShop.shopId,
+              entryId: data.id,
+              backendUrl: EXPO_PUBLIC_BACKEND_URL,
+            });
+            if (pushResult.success && pushResult.token) {
+              await AsyncStorage.setItem(CUSTOMER_PUSH_TOKEN_KEY, pushResult.token);
+              console.log('[FCM] Customer push registered in background.');
+            } else {
+              console.warn('[FCM] Customer push registration skipped/failed:', pushResult.reason);
+            }
+          } catch (pushError) {
+            console.error('[FCM] Customer push registration failed:', pushError);
+          }
+        })();
+
+        return;
       } else if (res.status === 403) {
         setErrorMessage('Shop is currently closed');
       } else {
@@ -288,7 +315,7 @@ export default function Index() {
   const refreshStatus = async () => {
     if (!queueStatus) return;
     try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/status/${queueStatus.id}`);
+      const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/status/${queueStatus.id}`);
       if (res.ok) {
         const data = await res.json();
         setQueueStatus({ ...data, shopId: queueStatus.shopId });
@@ -311,14 +338,15 @@ export default function Index() {
   };
 
   const confirmLeaveQueue = async () => {
-    if (!queueStatus) return;
+    if (!queueStatus || leaving) return;
+    setLeaving(true);
     try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${queueStatus.id}/leave`, { method: 'PATCH' });
+      const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${queueStatus.id}/leave`, { method: 'PATCH' });
       if (res.ok) {
         const updated = myEntries.filter(e => e.id !== queueStatus.id);
         await saveMyEntries(updated);
         setShowLeaveModal(false);
-        
+
         if (updated.length > 0) {
           await viewEntry(updated[0]);
         } else {
@@ -329,6 +357,7 @@ export default function Index() {
         }
       }
     } catch (e) { console.error('Leave error:', e); }
+    finally { setLeaving(false); }
   };
 
   const handleNewEntry = () => {
@@ -337,16 +366,6 @@ export default function Index() {
     setSelectedShop(null);
     setName('');
   };
-
-  // Loading state
-  if (loadingShops) {
-    return (
-      <View style={st.center}>
-        <ActivityIndicator size="large" color="#007BFF" />
-        <Text style={st.loadingText}>Loading shops...</Text>
-      </View>
-    );
-  }
 
   // STEP 1: Shop Selection Screen
   if (!selectedShop && !joined) {
@@ -387,6 +406,11 @@ export default function Index() {
                 )}
               </TouchableOpacity>
             ))}
+          </View>
+        ) : loadingShops ? (
+          <View style={st.inlineLoader}>
+            <ActivityIndicator size="small" color="#007BFF" />
+            <Text style={st.loadingText}>Loading shops...</Text>
           </View>
         ) : (
           <View style={st.emptyBox}>
@@ -652,8 +676,12 @@ export default function Index() {
                 <TouchableOpacity style={st.modalCancel} onPress={() => setShowLeaveModal(false)}>
                   <Text style={st.modalCancelText}>Stay</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={st.modalConfirm} onPress={confirmLeaveQueue}>
-                  <Text style={st.modalConfirmText}>Leave</Text>
+                <TouchableOpacity
+                  style={[st.modalConfirm, leaving && st.joinBtnDisabled]}
+                  disabled={leaving}
+                  onPress={confirmLeaveQueue}
+                >
+                  {leaving ? <ActivityIndicator color="#fff" /> : <Text style={st.modalConfirmText}>Leave</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -695,6 +723,7 @@ const st = StyleSheet.create({
 
   emptyBox: { backgroundColor: '#fff', borderRadius: 12, padding: 32, alignItems: 'center' },
   emptyText: { fontSize: 16, color: '#6C757D' },
+  inlineLoader: { backgroundColor: '#fff', borderRadius: 12, padding: 32, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 12 },
 
   activeSection: { marginTop: 24 },
   activeSectionTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginBottom: 12 },

@@ -13,11 +13,15 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerMobilePushDevice, unregisterMobilePushDevice } from '../lib/mobileNotifications';
 import { getBackendBaseUrl } from '../lib/backendUrl';
+import { fetchWithRetry } from '../lib/fetchWithRetry';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const BARBER_AUTH_KEY = '@barber_authed';
 const BARBER_PUSH_KEY = '@barber_push_enabled';
 const BARBER_PUSH_TOKEN_KEY = '@barber_push_token';
+const DASHBOARD_CACHE_PREFIX = '@dashboard_cache_v1:';
+const dashboardCacheKey = (shopId: string, barberFilter: string | null) =>
+  `${DASHBOARD_CACHE_PREFIX}${shopId}:${barberFilter || 'all'}`;
 
 interface ServingEntry {
   id: string;
@@ -93,6 +97,23 @@ export default function Dashboard() {
   const [addBarberSelection, setAddBarberSelection] = useState<string | null>(null);
   const [showAddBarberPicker, setShowAddBarberPicker] = useState(false);
 
+  // In-flight action tracker — keys are entry IDs or sentinel strings (e.g. "start-next:<barberId|all>")
+  // Any key present means a barber-dashboard action is waiting on a backend response; used to
+  // visually disable the triggering button so multi-taps don't fire the same mutation twice.
+  const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
+  const startNextKey = `start-next:${barberFilter || 'all'}`;
+  const markPending = (key: string) => setPendingActions(prev => {
+    const next = new Set(prev);
+    next.add(key);
+    return next;
+  });
+  const clearPending = (key: string) => setPendingActions(prev => {
+    if (!prev.has(key)) return prev;
+    const next = new Set(prev);
+    next.delete(key);
+    return next;
+  });
+
   const getPushFailureMessage = (reason?: string) => {
     switch (reason) {
       case 'firebase-messaging-unavailable':
@@ -147,6 +168,22 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (isAuth && shopId) {
+      // Hydrate from cache synchronously-first so all chair cards render immediately with the
+      // correct activeBarbers count. Without this, data is null on first paint and the chair
+      // loop renders a single placeholder until the network returns.
+      (async () => {
+        try {
+          const cached = await AsyncStorage.getItem(dashboardCacheKey(shopId, barberFilter));
+          if (cached) {
+            const parsed: DashboardData = JSON.parse(cached);
+            // Only hydrate if we don't already have fresher data from a previous in-flight fetch.
+            setData(prev => prev ?? parsed);
+          }
+        } catch (e) {
+          // Corrupt cache is non-fatal — the network fetch below will overwrite it.
+        }
+      })();
+
       fetchDashboard();
       const interval = setInterval(fetchDashboard, 15000); // Performance: 15s polling
 
@@ -293,8 +330,8 @@ export default function Dashboard() {
   const fetchDashboard = async () => {
     if (!shopId) return;
     try {
-      // Check for session reset
-      const sRes = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${shopId}/session-status`);
+      // Check for session reset — uses fetchWithRetry so a transient blip doesn't drop the poll.
+      const sRes = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${shopId}/session-status`);
       if (sRes.ok) {
         const sData = await sRes.json();
         if (sData.sessionReset) {
@@ -311,111 +348,283 @@ export default function Dashboard() {
           }
         }
       }
-      
-      // Fetch shop-specific dashboard with optional barber filter
+
+      // Fetch shop-specific dashboard with optional barber filter.
       let dashboardUrl = `${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/dashboard`;
       if (barberFilter) {
         dashboardUrl += `?barber_id=${barberFilter}`;
       }
-      const res = await fetch(dashboardUrl);
-      if (res.ok) setData(await res.json());
+      const res = await fetchWithRetry(dashboardUrl);
+      if (res.ok) {
+        const fresh: DashboardData = await res.json();
+        setData(fresh);
+        // Persist so the next mount can render all chairs without waiting on the network.
+        AsyncStorage.setItem(dashboardCacheKey(shopId, barberFilter), JSON.stringify(fresh)).catch(() => {});
+      }
     } catch (e) { console.error(e); }
   };
 
-  // DONE with auto-next
+  // Pick the waiting entry that the backend would promote next for a given barber scope.
+  // Mirrors backend ordering in start_next_for_shop / done_serving_shop: this barber's queue first,
+  // then the general (barberId == null) queue. Returns null if nothing eligible.
+  const pickNextWaiting = (
+    waitingList: WaitingEntry[] | undefined,
+    barberId: string | null,
+  ): { entry: WaitingEntry; index: number } | null => {
+    if (!waitingList || waitingList.length === 0) return null;
+    if (barberId) {
+      const i = waitingList.findIndex(w => w.barberId === barberId);
+      if (i !== -1) return { entry: waitingList[i], index: i };
+    }
+    const j = waitingList.findIndex(w => !w.barberId);
+    if (j !== -1) return { entry: waitingList[j], index: j };
+    return null;
+  };
+
+  const findOpenChair = (d: DashboardData, preferredChair: number | null): number | null => {
+    const activeBarbers = d.activeBarbers || 1;
+    const occupied = new Set((d.servingList || []).map(e => e.chairNumber).filter((c): c is number => !!c));
+    if (preferredChair && !occupied.has(preferredChair)) return preferredChair;
+    for (let c = 1; c <= activeBarbers; c++) {
+      if (!occupied.has(c)) return c;
+    }
+    return null;
+  };
+
+  // Remove the serving entry and, if there's a next-in-line, promote it into the freed chair.
+  // Keeps counts in sync so the chair card re-renders immediately with the new occupant.
+  const applyOptimisticComplete = (entryId: string, completedStatus: 'completed' | 'skipped') => {
+    setData(prev => {
+      if (!prev) return prev;
+      const removed = prev.servingList?.find(e => e.id === entryId);
+      if (!removed) return prev;
+      const chair = removed.chairNumber ?? null;
+      const barberId = removed.barberId ?? null;
+      let newServing = (prev.servingList || []).filter(e => e.id !== entryId);
+      let newWaiting = prev.waitingList || [];
+
+      const pick = pickNextWaiting(newWaiting, barberId);
+      if (pick && chair) {
+        const promoted: ServingEntry = {
+          id: pick.entry.id,
+          tokenNumber: pick.entry.tokenNumber,
+          name: pick.entry.name,
+          createdAt: pick.entry.createdAt,
+          chairNumber: chair,
+          barberId: pick.entry.barberId ?? barberId,
+          barberName: pick.entry.barberName ?? null,
+          expiresAt: null,
+          serviceStartedAt: null,
+        };
+        newServing = [...newServing, promoted];
+        newWaiting = newWaiting.filter((_, i) => i !== pick.index);
+      }
+
+      return {
+        ...prev,
+        servingList: newServing,
+        waitingList: newWaiting,
+        servingCount: newServing.length,
+        waitingCount: newWaiting.length,
+        completedCount: completedStatus === 'completed' ? (prev.completedCount || 0) + 1 : prev.completedCount,
+      };
+    });
+  };
+
+  // Promote the next waiting entry into the first open chair, respecting barberFilter scope.
+  const applyOptimisticStartNext = () => {
+    setData(prev => {
+      if (!prev) return prev;
+      const pick = pickNextWaiting(prev.waitingList, barberFilter);
+      if (!pick) return prev;
+      // Barber's assigned chair (if filter set) takes priority, otherwise first open.
+      const preferredChair = barberFilter
+        ? prev.barbers?.find(b => b.id === barberFilter)?.chairNumber || null
+        : null;
+      const chair = findOpenChair(prev, preferredChair);
+      if (!chair) return prev;
+      const promoted: ServingEntry = {
+        id: pick.entry.id,
+        tokenNumber: pick.entry.tokenNumber,
+        name: pick.entry.name,
+        createdAt: pick.entry.createdAt,
+        chairNumber: chair,
+        barberId: pick.entry.barberId ?? barberFilter,
+        barberName: pick.entry.barberName ?? null,
+        expiresAt: null,
+        serviceStartedAt: null,
+      };
+      const newServing = [...(prev.servingList || []), promoted];
+      const newWaiting = (prev.waitingList || []).filter((_, i) => i !== pick.index);
+      return {
+        ...prev,
+        servingList: newServing,
+        waitingList: newWaiting,
+        servingCount: newServing.length,
+        waitingCount: newWaiting.length,
+      };
+    });
+  };
+
+  // DONE with auto-next — optimistic UI owns the success path.
+  // Full dashboard reload happens ONLY on error; the 15s safety-net poll catches any drift.
   const handleDone = async (entryId: string, tokenNum: number) => {
     if (!shopId) return;
-    try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/done/${entryId}`, { method: 'POST' });
-      if (res.ok) {
-        const r = await res.json();
-        let msg = `✅ #${tokenNum} done.`;
-        if (r.autoStarted) msg += ` Now serving #${r.autoStarted.tokenNumber}`;
-        showToast(msg);
-        fetchDashboard();
-      }
-    } catch (e) { console.error(e); }
+    if (pendingActions.has(entryId)) return;
     setConfirmModal({ visible: false, type: 'done' });
+    markPending(entryId);
+    applyOptimisticComplete(entryId, 'completed');
+    showToast(`✅ #${tokenNum} done.`);
+    let ok = false;
+    try {
+      const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/done/${entryId}`, { method: 'POST' });
+      ok = res.ok;
+      if (ok) {
+        const r = await res.json();
+        if (r.autoStarted) showToast(`▶ Now serving #${r.autoStarted.tokenNumber}`);
+      } else {
+        showToast('⚠ Failed to complete — refreshing');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('⚠ Network error — refreshing');
+    } finally {
+      clearPending(entryId);
+      if (!ok) fetchDashboard();
+    }
   };
 
-  // START - mark service started (clears timer)
+  // START - mark service started (clears timer). Optimistic flip is enough; no reload on success.
   const handleStart = async (entryId: string, tokenNum: number) => {
     if (!shopId) return;
-    try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/start/${entryId}`, { method: 'POST' });
-      if (res.ok) {
-        showToast(`▶ Service started for #${tokenNum}`);
-        fetchDashboard();
-      }
-    } catch (e) { console.error(e); }
+    if (pendingActions.has(entryId)) return;
     setConfirmModal({ visible: false, type: 'start' });
+    markPending(entryId);
+    setData(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        servingList: (prev.servingList || []).map(e =>
+          e.id === entryId ? { ...e, serviceStartedAt: new Date().toISOString(), expiresAt: null } : e
+        ),
+      };
+    });
+    showToast(`▶ Service started for #${tokenNum}`);
+    let ok = false;
+    try {
+      const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/start/${entryId}`, { method: 'POST' });
+      ok = res.ok;
+    } catch (e) { console.error(e); }
+    finally {
+      clearPending(entryId);
+      if (!ok) fetchDashboard();
+    }
   };
 
-  // SKIP - skip customer
+  // SKIP - skip customer. Optimistic: remove entry and promote next. Reload only on error.
   const handleSkip = async (entryId: string, tokenNum: number) => {
     if (!shopId) return;
+    if (pendingActions.has(entryId)) return;
+    setConfirmModal({ visible: false, type: 'skip' });
+    markPending(entryId);
+    applyOptimisticComplete(entryId, 'skipped');
+    showToast(`⏭ #${tokenNum} skipped.`);
+    let ok = false;
     try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/skip/${entryId}`, { method: 'POST' });
-      if (res.ok) {
+      const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/skip/${entryId}`, { method: 'POST' });
+      ok = res.ok;
+      if (ok) {
         const r = await res.json();
-        let msg = `⏭ #${tokenNum} skipped.`;
-        if (r.autoStarted) msg += ` Now serving #${r.autoStarted.tokenNumber}`;
-        showToast(msg);
-        fetchDashboard();
+        if (r.autoStarted) showToast(`▶ Now serving #${r.autoStarted.tokenNumber}`);
       }
     } catch (e) { console.error(e); }
-    setConfirmModal({ visible: false, type: 'skip' });
+    finally {
+      clearPending(entryId);
+      if (!ok) fetchDashboard();
+    }
   };
 
   const handleStartNext = async () => {
     if (!shopId) return;
+    if (pendingActions.has(startNextKey)) return;
+    markPending(startNextKey);
+    applyOptimisticStartNext();
+    let ok = false;
     try {
       let url = `${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/start-next`;
       if (barberFilter) {
         url += `?barber_id=${barberFilter}`;
       }
-      const res = await fetch(url, { method: 'POST' });
-      if (res.ok) {
+      const res = await fetchWithRetry(url, { method: 'POST' });
+      ok = res.ok;
+      if (ok) {
         const r = await res.json();
         showToast(`▶ Serving #${r.tokenNumber} (${r.name})`);
-        fetchDashboard();
       } else {
-        const err = await res.json();
-        showToast(`⚠ ${err.detail}`);
+        const err = await res.json().catch(() => ({}));
+        showToast(`⚠ ${err.detail || 'Failed to call next'}`);
       }
     } catch (e) { console.error(e); }
+    finally {
+      clearPending(startNextKey);
+      if (!ok) fetchDashboard();
+    }
   };
 
   const handleAddCustomer = async () => {
     if (!addName.trim() || !shopId) { showToast('⚠ Enter customer name'); return; }
+    if (pendingActions.has('add-customer')) return;
+    const selectedBarberId = addBarberSelection;
+    markPending('add-customer');
     try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/join`, {
+      const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          name: addName.trim(), 
-          addedBy: 'barber', 
+        body: JSON.stringify({
+          name: addName.trim(),
+          addedBy: 'barber',
           shopId,
-          barberId: addBarberSelection || null
+          barberId: selectedBarberId || null
         }),
       });
       if (res.ok) {
         const r = await res.json();
-        const barberName = addBarberSelection 
-          ? data?.barbers?.find(b => b.id === addBarberSelection)?.name 
+        const barberName = selectedBarberId
+          ? data?.barbers?.find(b => b.id === selectedBarberId)?.name
           : null;
-        const msg = barberName 
+        const msg = barberName
           ? `✅ ${r.name} added — Token #${r.tokenNumber} → ${barberName}`
           : `✅ ${r.name} added — Token #${r.tokenNumber}`;
         showToast(msg);
         setAddName('');
         setAddBarberSelection(null);
-        fetchDashboard();
+
+        // Delta update: append the new entry to waitingList instead of reloading the whole dashboard.
+        // The join response already contains everything we need to render the row.
+        setData(prev => {
+          if (!prev) return prev;
+          const newWaiting: WaitingEntry = {
+            id: r.id,
+            tokenNumber: r.tokenNumber,
+            name: r.name,
+            createdAt: r.createdAt,
+            barberId: selectedBarberId || null,
+            barberName: barberName || null,
+          };
+          const newList = [...(prev.waitingList || []), newWaiting];
+          return { ...prev, waitingList: newList, waitingCount: newList.length };
+        });
       } else {
         const err = await res.json();
         showToast(`⚠ ${err.detail || 'Failed to add'}`);
+        fetchDashboard();
       }
-    } catch (e) { showToast('⚠ Network error'); }
+    } catch (e) {
+      showToast('⚠ Network error');
+      fetchDashboard();
+    } finally {
+      clearPending('add-customer');
+    }
   };
 
   // Loading state
@@ -553,12 +762,18 @@ export default function Dashboard() {
             ? `Chair (${data?.barbers?.find(b => b.id === barberFilter)?.name || 'Filtered'})`
             : `Chairs`}
         </Text>
-        {(() => {
+        {!data ? (
+          // First-ever login, no cache yet — don't guess at a chair count.
+          <View style={s.chairsLoader}>
+            <ActivityIndicator size="small" color="#007BFF" />
+            <Text style={s.chairsLoaderText}>Loading chairs...</Text>
+          </View>
+        ) : (() => {
           // When barber filter is ON, show only 1 chair for that barber
           // When barber filter is OFF, show all chairs
-          const chairsToShow = barberFilter 
-            ? 1 
-            : (data?.activeBarbers || 1);
+          const chairsToShow = barberFilter
+            ? 1
+            : (data.activeBarbers || 1);
           
           // Get the chair number for filtered barber
           const filteredBarberChair = barberFilter 
@@ -613,14 +828,16 @@ export default function Dashboard() {
                       )}
                     </View>
                     <View style={s.chairActions}>
-                      <TouchableOpacity 
-                        style={s.btnSkip} 
+                      <TouchableOpacity
+                        style={[s.btnSkip, pendingActions.has(serving.id) && s.btnDisabled]}
+                        disabled={pendingActions.has(serving.id)}
                         onPress={() => setConfirmModal({ visible: true, type: 'skip', entry: serving })}
                       >
                         <Text style={s.btnActionText}>SKIP</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity 
-                        style={s.btnDone} 
+                      <TouchableOpacity
+                        style={[s.btnDone, pendingActions.has(serving.id) && s.btnDisabled]}
+                        disabled={pendingActions.has(serving.id)}
                         onPress={() => setConfirmModal({ visible: true, type: 'done', entry: serving })}
                       >
                         <Text style={s.btnActionText}>DONE</Text>
@@ -631,7 +848,11 @@ export default function Dashboard() {
                   <View style={s.chairBody}>
                     <Text style={s.chairEmptyText}>Empty</Text>
                     {data && data.waitingCount > 0 && (
-                      <TouchableOpacity style={s.btnCallNext} onPress={handleStartNext}>
+                      <TouchableOpacity
+                        style={[s.btnCallNext, pendingActions.has(startNextKey) && s.btnDisabled]}
+                        disabled={pendingActions.has(startNextKey)}
+                        onPress={handleStartNext}
+                      >
                         <Text style={s.btnCallNextText}>CALL NEXT</Text>
                       </TouchableOpacity>
                     )}
@@ -672,8 +893,14 @@ export default function Dashboard() {
             placeholder="Customer name"
             placeholderTextColor="#999"
           />
-          <TouchableOpacity style={s.btnAdd} onPress={handleAddCustomer}>
-            <Text style={s.btnAddText}>ADD</Text>
+          <TouchableOpacity
+            style={[s.btnAdd, pendingActions.has('add-customer') && s.btnDisabled]}
+            disabled={pendingActions.has('add-customer')}
+            onPress={handleAddCustomer}
+          >
+            {pendingActions.has('add-customer')
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={s.btnAddText}>ADD</Text>}
           </TouchableOpacity>
         </View>
         {/* Barber Selection for Add Customer */}
@@ -768,8 +995,9 @@ export default function Dashboard() {
         </View>
       </Modal>
 
-      {/* Confirmation Modal */}
-      <Modal visible={confirmModal.visible} transparent animationType="fade">
+      {/* Confirmation Modal — animationType="none" so the modal (with its customer-name text)
+          disappears instantly when Done/Skip is tapped, instead of fading over the chair card. */}
+      <Modal visible={confirmModal.visible} transparent animationType="none">
         <View style={s.overlay}>
           <View style={s.modalBox}>
             <Text style={s.modalTitle}>
@@ -786,8 +1014,13 @@ export default function Dashboard() {
               <TouchableOpacity style={s.mCancel} onPress={() => setConfirmModal({ visible: false, type: 'done' })}>
                 <Text style={s.mCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[s.mConfirm, confirmModal.type === 'skip' && s.mConfirmDanger]} 
+              <TouchableOpacity
+                style={[
+                  s.mConfirm,
+                  confirmModal.type === 'skip' && s.mConfirmDanger,
+                  !!confirmModal.entry && pendingActions.has(confirmModal.entry.id) && s.btnDisabled,
+                ]}
+                disabled={!!confirmModal.entry && pendingActions.has(confirmModal.entry.id)}
                 onPress={() => {
                   const entry = confirmModal.entry;
                   if (entry) {
@@ -872,6 +1105,8 @@ const s = StyleSheet.create({
   chairCard: { borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1 },
   chairOccupied: { backgroundColor: '#E7F3FF', borderColor: '#B6D4FE' },
   chairEmpty: { backgroundColor: '#fff', borderColor: '#E9ECEF' },
+  chairsLoader: { backgroundColor: '#fff', borderColor: '#E9ECEF', borderWidth: 1, borderRadius: 12, padding: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  chairsLoaderText: { fontSize: 14, color: '#6C757D' },
   chairHeader: { marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chairLabel: { fontSize: 15, fontWeight: '700', color: '#495057' },
   chairBarberName: { fontSize: 13, color: '#6C757D', fontStyle: 'italic' },
@@ -884,6 +1119,7 @@ const s = StyleSheet.create({
   btnStart: { backgroundColor: '#17A2B8', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnSkip: { backgroundColor: '#FD7E14', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnDone: { backgroundColor: '#28A745', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnDisabled: { opacity: 0.5 },
   btnActionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   btnCallNext: { backgroundColor: '#007BFF', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 8 },
   btnCallNextText: { color: '#fff', fontSize: 14, fontWeight: '700' },

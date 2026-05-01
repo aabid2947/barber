@@ -11,9 +11,11 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getBackendBaseUrl } from '../lib/backendUrl';
+import { fetchWithRetry } from '../lib/fetchWithRetry';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const ADMIN_AUTH_KEY = '@admin_authed';
+const ADMIN_SHOPS_CACHE_KEY = '@admin_shops_cache_v1';
 
 interface Shop {
   id: string;
@@ -83,6 +85,22 @@ export default function Admin() {
   const [showAddBarberModal, setShowAddBarberModal] = useState(false);
   const [newBarberName, setNewBarberName] = useState('');
 
+  // Tracks in-flight action keys so any button that triggered a network call can immediately
+  // disable itself and render a loader. Shared across all handlers for consistency.
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+  const isBusy = (key: string) => busy.has(key);
+  const markBusy = (key: string) => setBusy(prev => {
+    const next = new Set(prev);
+    next.add(key);
+    return next;
+  });
+  const clearBusy = (key: string) => setBusy(prev => {
+    if (!prev.has(key)) return prev;
+    const next = new Set(prev);
+    next.delete(key);
+    return next;
+  });
+
   useEffect(() => { checkAuth(); }, []);
   useEffect(() => { if (isAuth) fetchShops(); }, [isAuth]);
   useEffect(() => { 
@@ -135,16 +153,34 @@ export default function Admin() {
 
   const handleLogout = async () => {
     await AsyncStorage.removeItem(ADMIN_AUTH_KEY);
+    await AsyncStorage.removeItem(ADMIN_SHOPS_CACHE_KEY);
     setIsAuth(false);
     setSelectedShop(null);
   };
 
   const fetchShops = async () => {
+    // 1) Hydrate from cache so the shops list renders without waiting on the network.
     try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/admin/shops`);
+      const cached = await AsyncStorage.getItem(ADMIN_SHOPS_CACHE_KEY);
+      if (cached) {
+        const parsed: Shop[] = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setShops(prev => (prev.length > 0 ? prev : parsed));
+        }
+      }
+    } catch (e) {
+      // Corrupt cache is non-fatal — the network fetch below will overwrite it.
+    }
+
+    // 2) Refresh from network. Reconciles against cached list when it arrives.
+    //    fetchWithRetry handles timeout + backoff retries on slow/flaky networks.
+    try {
+      const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/admin/shops`);
       if (res.ok) {
         const d = await res.json();
-        setShops(d.shops || []);
+        const fresh: Shop[] = d.shops || [];
+        setShops(fresh);
+        AsyncStorage.setItem(ADMIN_SHOPS_CACHE_KEY, JSON.stringify(fresh)).catch(() => {});
       }
     } catch (e) { console.error(e); }
   };
@@ -184,6 +220,8 @@ export default function Admin() {
       showToast('❌ Enter barber name');
       return;
     }
+    if (isBusy('add-barber')) return;
+    markBusy('add-barber');
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${selectedShop.shopId}/barbers`, {
         method: 'POST',
@@ -201,10 +239,14 @@ export default function Admin() {
         showToast(`❌ ${e.detail}`);
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy('add-barber'); }
   };
 
   const handleDeleteBarber = async (barberId: string, barberName: string) => {
     if (!selectedShop) return;
+    const key = `delete-barber:${barberId}`;
+    if (isBusy(key)) return;
+    markBusy(key);
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${selectedShop.shopId}/barbers/${barberId}`, {
         method: 'DELETE',
@@ -216,6 +258,7 @@ export default function Admin() {
         showToast('❌ Failed to delete barber');
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy(key); }
   };
 
   const handleCreateShop = async () => {
@@ -223,6 +266,8 @@ export default function Admin() {
       showToast('❌ Fill all required fields');
       return;
     }
+    if (isBusy('create-shop')) return;
+    markBusy('create-shop');
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/admin/shops`, {
         method: 'POST',
@@ -239,10 +284,13 @@ export default function Admin() {
         showToast(`❌ ${e.detail}`);
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy('create-shop'); }
   };
 
   const handleUpdateShop = async () => {
     if (!editShopData || !selectedShop) return;
+    if (isBusy('update-shop')) return;
+    markBusy('update-shop');
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/admin/shops/${selectedShop.shopId}`, {
         method: 'PUT',
@@ -260,10 +308,13 @@ export default function Admin() {
         showToast(`❌ ${e.detail}`);
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy('update-shop'); }
   };
 
   const handleDeleteShop = async () => {
     if (!selectedShop) return;
+    if (isBusy('delete-shop')) return;
+    markBusy('delete-shop');
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/admin/shops/${selectedShop.shopId}`, {
         method: 'DELETE',
@@ -277,10 +328,13 @@ export default function Admin() {
         showToast('❌ Failed to delete');
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy('delete-shop'); }
   };
 
   const handleToggleShopStatus = async () => {
     if (!selectedShop) return;
+    if (isBusy('toggle-shop')) return;
+    markBusy('toggle-shop');
     const endpoint = selectedShop.isOpen ? 'close' : 'open';
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${selectedShop.shopId}/${endpoint}`, {
@@ -292,10 +346,13 @@ export default function Admin() {
         fetchShops();
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy('toggle-shop'); }
   };
 
   const handleResetDay = async () => {
     if (!selectedShop) return;
+    if (isBusy('reset-day')) return;
+    markBusy('reset-day');
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${selectedShop.shopId}/reset-day`, {
         method: 'POST',
@@ -306,10 +363,13 @@ export default function Admin() {
         fetchShopStats(selectedShop.shopId);
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy('reset-day'); }
   };
 
   const handleResetSession = async () => {
     if (!selectedShop) return;
+    if (isBusy('reset-session')) return;
+    markBusy('reset-session');
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${selectedShop.shopId}/reset-session`, {
         method: 'POST',
@@ -319,12 +379,15 @@ export default function Admin() {
         setShowResetSessionModal(false);
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy('reset-session'); }
   };
 
   const handleRemoveToken = async () => {
     if (!selectedShop || !tokenToRemove) return;
     const tokenNum = parseInt(tokenToRemove);
     if (!tokenNum) { showToast('❌ Enter valid token number'); return; }
+    if (isBusy('remove-token')) return;
+    markBusy('remove-token');
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${selectedShop.shopId}/remove-token`, {
         method: 'POST',
@@ -341,6 +404,7 @@ export default function Admin() {
         showToast(`❌ ${e.detail}`);
       }
     } catch (e) { showToast('❌ Network error'); }
+    finally { clearBusy('remove-token'); }
   };
 
   const formatDate = (dateStr: string) => {
@@ -432,11 +496,14 @@ export default function Admin() {
             <Text style={[st.statusValue, st.qrUrl]}>/?shop={selectedShop.shopId}</Text>
           </View>
 
-          <TouchableOpacity 
-            style={[st.btnToggle, selectedShop.isOpen ? st.btnDanger : st.btnSuccess]} 
+          <TouchableOpacity
+            style={[st.btnToggle, selectedShop.isOpen ? st.btnDanger : st.btnSuccess, isBusy('toggle-shop') && st.btnDisabled]}
+            disabled={isBusy('toggle-shop')}
             onPress={handleToggleShopStatus}
           >
-            <Text style={st.btnText}>{selectedShop.isOpen ? 'CLOSE SHOP' : 'OPEN SHOP'}</Text>
+            {isBusy('toggle-shop')
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={st.btnText}>{selectedShop.isOpen ? 'CLOSE SHOP' : 'OPEN SHOP'}</Text>}
           </TouchableOpacity>
         </View>
 
@@ -580,8 +647,12 @@ export default function Admin() {
                 <TouchableOpacity style={st.btnCancel} onPress={() => setEditMode(false)}>
                   <Text style={st.btnCancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={st.btnSave} onPress={handleUpdateShop}>
-                  <Text style={st.btnText}>SAVE</Text>
+                <TouchableOpacity
+                  style={[st.btnSave, isBusy('update-shop') && st.btnDisabled]}
+                  disabled={isBusy('update-shop')}
+                  onPress={handleUpdateShop}
+                >
+                  {isBusy('update-shop') ? <ActivityIndicator color="#fff" /> : <Text style={st.btnText}>SAVE</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -629,11 +700,14 @@ export default function Admin() {
                     <Text style={st.barberName}>{barber.name}</Text>
                     <Text style={st.barberChair}>Chair #{barber.chairNumber}</Text>
                   </View>
-                  <TouchableOpacity 
-                    style={st.barberDeleteBtn}
+                  <TouchableOpacity
+                    style={[st.barberDeleteBtn, isBusy(`delete-barber:${barber.id}`) && st.btnDisabled]}
+                    disabled={isBusy(`delete-barber:${barber.id}`)}
                     onPress={() => handleDeleteBarber(barber.id, barber.name)}
                   >
-                    <Text style={st.barberDeleteText}>Remove</Text>
+                    {isBusy(`delete-barber:${barber.id}`)
+                      ? <ActivityIndicator color="#DC3545" size="small" />
+                      : <Text style={st.barberDeleteText}>Remove</Text>}
                   </TouchableOpacity>
                 </View>
               ))}
@@ -720,8 +794,12 @@ export default function Admin() {
                 <TouchableOpacity style={st.mCancel} onPress={() => setShowResetSessionModal(false)}>
                   <Text style={st.mCancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={st.mConfirm} onPress={handleResetSession}>
-                  <Text style={st.mConfirmText}>Reset</Text>
+                <TouchableOpacity
+                  style={[st.mConfirm, isBusy('reset-session') && st.btnDisabled]}
+                  disabled={isBusy('reset-session')}
+                  onPress={handleResetSession}
+                >
+                  {isBusy('reset-session') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Reset</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -737,8 +815,12 @@ export default function Admin() {
                 <TouchableOpacity style={st.mCancel} onPress={() => setShowRemoveTokenModal(false)}>
                   <Text style={st.mCancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={st.mConfirm} onPress={handleRemoveToken}>
-                  <Text style={st.mConfirmText}>Remove</Text>
+                <TouchableOpacity
+                  style={[st.mConfirm, isBusy('remove-token') && st.btnDisabled]}
+                  disabled={isBusy('remove-token')}
+                  onPress={handleRemoveToken}
+                >
+                  {isBusy('remove-token') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Remove</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -754,8 +836,12 @@ export default function Admin() {
                 <TouchableOpacity style={st.mCancel} onPress={() => setShowResetDayModal(false)}>
                   <Text style={st.mCancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={st.mConfirmDanger} onPress={handleResetDay}>
-                  <Text style={st.mConfirmText}>Reset</Text>
+                <TouchableOpacity
+                  style={[st.mConfirmDanger, isBusy('reset-day') && st.btnDisabled]}
+                  disabled={isBusy('reset-day')}
+                  onPress={handleResetDay}
+                >
+                  {isBusy('reset-day') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Reset</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -771,8 +857,12 @@ export default function Admin() {
                 <TouchableOpacity style={st.mCancel} onPress={() => setShowDeleteShopModal(false)}>
                   <Text style={st.mCancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={st.mConfirmDanger} onPress={handleDeleteShop}>
-                  <Text style={st.mConfirmText}>Delete</Text>
+                <TouchableOpacity
+                  style={[st.mConfirmDanger, isBusy('delete-shop') && st.btnDisabled]}
+                  disabled={isBusy('delete-shop')}
+                  onPress={handleDeleteShop}
+                >
+                  {isBusy('delete-shop') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Delete</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -796,8 +886,12 @@ export default function Admin() {
                 <TouchableOpacity style={st.mCancel} onPress={() => { setShowAddBarberModal(false); setNewBarberName(''); }}>
                   <Text style={st.mCancelText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={st.mConfirm} onPress={handleAddBarber}>
-                  <Text style={st.mConfirmText}>Add</Text>
+                <TouchableOpacity
+                  style={[st.mConfirm, isBusy('add-barber') && st.btnDisabled]}
+                  disabled={isBusy('add-barber')}
+                  onPress={handleAddBarber}
+                >
+                  {isBusy('add-barber') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Add</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -993,8 +1087,12 @@ export default function Admin() {
               <TouchableOpacity style={st.mCancel} onPress={() => setShowCreateModal(false)}>
                 <Text style={st.mCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={st.mConfirm} onPress={handleCreateShop}>
-                <Text style={st.mConfirmText}>Create</Text>
+              <TouchableOpacity
+                style={[st.mConfirm, isBusy('create-shop') && st.btnDisabled]}
+                disabled={isBusy('create-shop')}
+                onPress={handleCreateShop}
+              >
+                {isBusy('create-shop') ? <ActivityIndicator color="#fff" /> : <Text style={st.mConfirmText}>Create</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -1028,6 +1126,7 @@ const st = StyleSheet.create({
   
   btnPrimary: { backgroundColor: '#007BFF', padding: 16, borderRadius: 10, alignItems: 'center' },
   btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  btnDisabled: { opacity: 0.5 },
   btnSuccess: { backgroundColor: '#28A745', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
   btnDanger: { backgroundColor: '#DC3545', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
   btnWarning: { backgroundColor: '#FD7E14', padding: 16, borderRadius: 10, alignItems: 'center' },

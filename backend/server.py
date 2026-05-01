@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+import asyncio
+from fastapi import FastAPI, APIRouter, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
@@ -745,16 +746,9 @@ async def shop_login(data: dict):
 
 @api_router.get("/admin/shops")
 async def list_shops():
-    """List all shops (admin only)"""
-    shops = await db.shops.find().to_list(100)
-    shop_list = []
-    for shop in shops:
-        if '_id' in shop:
-            del shop['_id']
-        # Don't expose password
-        shop.pop('password', None)
-        shop_list.append(shop)
-    return {"shops": shop_list}
+    """List all shops (admin only). Projection strips _id and password at query time."""
+    shops = await db.shops.find({}, {"_id": 0, "password": 0}).to_list(100)
+    return {"shops": shops}
 
 
 @api_router.post("/admin/shops")
@@ -1051,7 +1045,7 @@ async def get_shop_dashboard(shop_id: str, barber_id: str = None):
 
 
 @api_router.post("/queue/{shop_id}/start-next")
-async def start_next_for_shop(shop_id: str, barber_id: str = None):
+async def start_next_for_shop(shop_id: str, background_tasks: BackgroundTasks, barber_id: str = None):
     """Move next waiting customer to serving for a specific shop/barber with timer"""
     today = get_today_key()
     
@@ -1137,11 +1131,9 @@ async def start_next_for_shop(shop_id: str, barber_id: str = None):
         {"$set": update_data}
     )
 
-    try:
-        await notify_customer_called(shop_id, {**next_entry, **update_data})
-    except Exception as notify_exc:
-        logger.warning(f"Failed to notify called customer {next_entry.get('id')}: {notify_exc}")
-    
+    # Notify in background so the HTTP response returns before the FCM round trip.
+    background_tasks.add_task(_safe_notify_customer_called, shop_id, {**next_entry, **update_data})
+
     return {
         "success": True,
         "message": f"Token #{next_entry['tokenNumber']} ({next_entry['name']}) → Chair {available_chair}",
@@ -1177,7 +1169,7 @@ async def mark_service_started(shop_id: str, entry_id: str):
 
 
 @api_router.post("/queue/{shop_id}/skip/{entry_id}")
-async def skip_customer(shop_id: str, entry_id: str, barber_id: str = None):
+async def skip_customer(shop_id: str, entry_id: str, background_tasks: BackgroundTasks, barber_id: str = None):
     """Skip a customer - they must take a new token"""
     entry = await db.queue_entries.find_one({"id": entry_id, "status": "serving"})
     if not entry:
@@ -1197,10 +1189,7 @@ async def skip_customer(shop_id: str, entry_id: str, barber_id: str = None):
         }}
     )
 
-    try:
-        await notify_customer_status(shop_id, entry, "skipped")
-    except Exception as notify_exc:
-        logger.warning(f"Failed to notify skipped customer {entry_id}: {notify_exc}")
+    background_tasks.add_task(_safe_notify_customer_status, shop_id, entry, "skipped")
 
     await disable_customer_entry_tokens(entry_id)
     
@@ -1254,10 +1243,7 @@ async def skip_customer(shop_id: str, entry_id: str, barber_id: str = None):
             {"$set": update_data}
         )
 
-        try:
-            await notify_customer_called(shop_id, {**next_entry, **update_data})
-        except Exception as notify_exc:
-            logger.warning(f"Failed to notify auto-started customer after skip {next_entry.get('id')}: {notify_exc}")
+        background_tasks.add_task(_safe_notify_customer_called, shop_id, {**next_entry, **update_data})
 
         auto_started = {
             "tokenNumber": next_entry["tokenNumber"],
@@ -1265,7 +1251,7 @@ async def skip_customer(shop_id: str, entry_id: str, barber_id: str = None):
             "chairNumber": freed_chair,
             "barberId": serving_barber_id
         }
-    
+
     return {
         "success": True,
         "skipped": {"tokenNumber": entry["tokenNumber"], "name": entry["name"]},
@@ -1274,7 +1260,7 @@ async def skip_customer(shop_id: str, entry_id: str, barber_id: str = None):
 
 
 @api_router.post("/queue/{shop_id}/done/{entry_id}")
-async def done_serving_shop(shop_id: str, entry_id: str, barber_id: str = None):
+async def done_serving_shop(shop_id: str, entry_id: str, background_tasks: BackgroundTasks, barber_id: str = None):
     """Mark customer as done and auto-call next for a specific shop/barber"""
     entry = await db.queue_entries.find_one({"id": entry_id, "status": "serving"})
     if not entry:
@@ -1346,10 +1332,7 @@ async def done_serving_shop(shop_id: str, entry_id: str, barber_id: str = None):
             {"$set": update_data}
         )
 
-        try:
-            await notify_customer_called(shop_id, {**next_entry, **update_data})
-        except Exception as notify_exc:
-            logger.warning(f"Failed to notify auto-started customer after done {next_entry.get('id')}: {notify_exc}")
+        background_tasks.add_task(_safe_notify_customer_called, shop_id, {**next_entry, **update_data})
 
         auto_started = {
             "id": next_entry["id"],
@@ -1657,8 +1640,37 @@ async def send_test_notification(payload: NotificationTestRequest):
 # QUEUE APIS (Updated for Multi-Shop)
 # ============================================================================
 
+async def _notify_barbers_for_join_safe(shop_id: str, entry_id: str, token_number: int, customer_name: str, barber_id: Optional[str]):
+    try:
+        logger.info(f"[JOIN] (bg) Sending barber notification for shop={shop_id}, token=#{token_number}")
+        await notify_barbers_for_join(
+            shop_id=shop_id,
+            entry_id=entry_id,
+            token_number=token_number,
+            customer_name=customer_name,
+            barber_id=barber_id,
+        )
+        logger.info(f"[JOIN] (bg) Barber notification completed for token=#{token_number}")
+    except Exception as notify_exc:
+        logger.error(f"[JOIN] (bg) FAILED to notify barbers for shop {shop_id}: {notify_exc}", exc_info=True)
+
+
+async def _safe_notify_customer_called(shop_id: str, entry: Dict[str, Any]):
+    try:
+        await notify_customer_called(shop_id, entry)
+    except Exception as notify_exc:
+        logger.warning(f"[NOTIFY] (bg) notify_customer_called failed for entry {entry.get('id')}: {notify_exc}")
+
+
+async def _safe_notify_customer_status(shop_id: str, entry: Dict[str, Any], event_type: str):
+    try:
+        await notify_customer_status(shop_id, entry, event_type)
+    except Exception as notify_exc:
+        logger.warning(f"[NOTIFY] (bg) notify_customer_status({event_type}) failed for entry {entry.get('id')}: {notify_exc}")
+
+
 @api_router.post("/queue/join")
-async def join_queue(request: JoinQueueRequest):
+async def join_queue(request: JoinQueueRequest, background_tasks: BackgroundTasks):
     shop_id = request.shopId or "default"
     logger.info(f"[JOIN] === Queue join request: name={request.name}, shopId={shop_id}, barberId={request.barberId}, addedBy={request.addedBy} ===")
 
@@ -1669,11 +1681,18 @@ async def join_queue(request: JoinQueueRequest):
 
     today = get_today_key()
 
-    # Get next token for this specific shop
-    max_entry = await db.queue_entries.find_one(
+    # Run independent reads concurrently: next-token lookup, people-ahead count, serving list.
+    # people_ahead / serving include this entry's effect only after insert; we compute them here
+    # and adjust after the insert to keep the response accurate without extra round trips.
+    max_entry_task = db.queue_entries.find_one(
         {"dateKey": today, "shopId": shop_id},
         sort=[("tokenNumber", -1)]
     )
+    serving_task = db.queue_entries.find(
+        {"dateKey": today, "shopId": shop_id, "status": "serving"}
+    ).sort("tokenNumber", 1).to_list(100)
+
+    max_entry, serving_entries = await asyncio.gather(max_entry_task, serving_task)
     next_token = 1 if not max_entry else max_entry["tokenNumber"] + 1
 
     entry = QueueEntry(
@@ -1688,20 +1707,17 @@ async def join_queue(request: JoinQueueRequest):
     )
     await db.queue_entries.insert_one(entry.dict())
 
-    try:
-        logger.info(f"[JOIN] Sending barber notification for shop={shop_id}, token=#{entry.tokenNumber}")
-        await notify_barbers_for_join(
-            shop_id=shop_id,
-            entry_id=entry.id,
-            token_number=entry.tokenNumber,
-            customer_name=entry.name,
-            barber_id=request.barberId,
-        )
-        logger.info(f"[JOIN] Barber notification completed for token=#{entry.tokenNumber}")
-    except Exception as notify_exc:
-        logger.error(f"[JOIN] FAILED to notify barbers for shop {shop_id}: {notify_exc}", exc_info=True)
+    # Fire-and-forget notification via FastAPI background task — returns response before FCM send.
+    background_tasks.add_task(
+        _notify_barbers_for_join_safe,
+        shop_id,
+        entry.id,
+        entry.tokenNumber,
+        entry.name,
+        request.barberId,
+    )
 
-    # People ahead = only waiting tokens before this user in same shop
+    # People ahead = only waiting tokens with lower token number in same shop.
     people_ahead = await db.queue_entries.count_documents({
         "dateKey": today,
         "shopId": shop_id,
@@ -1709,10 +1725,6 @@ async def join_queue(request: JoinQueueRequest):
         "status": "waiting"
     })
 
-    # Serving now in same shop
-    serving_entries = await db.queue_entries.find(
-        {"dateKey": today, "shopId": shop_id, "status": "serving"}
-    ).sort("tokenNumber", 1).to_list(100)
     serving_now = [e["tokenNumber"] for e in serving_entries]
     currently_serving = len(serving_now)
 

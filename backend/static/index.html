@@ -144,9 +144,21 @@
         
         .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3); }
         .btn-primary:disabled { background: var(--gray-300); cursor: not-allowed; transform: none; box-shadow: none; }
-        
+
         .btn-danger { background: var(--danger); color: white; }
         .btn-danger:hover { background: #dc2626; }
+
+        .btn-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
         
         .token-display {
             text-align: center;
@@ -319,15 +331,15 @@
                     </div>
                     
                     <button id="leaveBtn" class="btn btn-danger">Leave Queue</button>
-                    
-                    <div class="update-indicator">
+
+                    <div id="rejoinSection" class="hidden" style="margin-top: 12px;">
+                        <button id="rejoinBtn" class="btn btn-primary">Join Queue Again</button>
+                    </div>
+
+                    <div id="updateIndicator" class="update-indicator">
                         <div class="update-dot"></div>
                         <span>Auto-updating every 10 seconds</span>
                     </div>
-                </div>
-                
-                <div id="rejoinSection" class="hidden">
-                    <button id="rejoinBtn" class="btn btn-primary">Join Queue Again</button>
                 </div>
             </div>
         </div>
@@ -373,6 +385,7 @@
         const servingNowSection = document.getElementById('servingNowSection');
         const rejoinSection = document.getElementById('rejoinSection');
         const rejoinBtn = document.getElementById('rejoinBtn');
+        const updateIndicator = document.getElementById('updateIndicator');
         
         // Hash function for change detection
         function hashData(data) {
@@ -461,13 +474,12 @@
             queueStatus.classList.add('hidden');
             rejoinSection.classList.add('hidden');
         }
-        
+
         function showQueueStatus() {
             loadingState.classList.add('hidden');
             noShopState.classList.add('hidden');
             joinForm.classList.add('hidden');
             queueStatus.classList.remove('hidden');
-            rejoinSection.classList.add('hidden');
         }
         
         function showError(message) {
@@ -477,34 +489,49 @@
         }
         
         async function joinQueue(name) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
             try {
                 joinBtn.disabled = true;
-                joinBtn.textContent = 'Joining...';
-                
+                nameInput.disabled = true;
+                joinBtn.innerHTML = '<span class="btn-spinner"></span>Joining...';
+
                 const response = await fetch(`${API_BASE}/queue/join`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ shopId: SHOP_ID, name, addedBy: 'customer' })
+                    body: JSON.stringify({ shopId: SHOP_ID, name, addedBy: 'customer' }),
+                    signal: controller.signal
                 });
-                
+
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to join queue');
+                    let detail = 'Failed to join queue';
+                    try {
+                        const error = await response.json();
+                        detail = error.detail || detail;
+                    } catch (_) {}
+                    throw new Error(detail);
                 }
-                
+
                 const data = await response.json();
                 currentEntry = data;
                 localStorage.setItem(`queueEntry_${SHOP_ID}`, JSON.stringify(data));
-                
+
                 updateStatusDisplay(data);
                 showQueueStatus();
                 startPolling();
-                
+
             } catch (err) {
                 console.error('Failed to join queue:', err);
-                showError(err.message);
+                if (err.name === 'AbortError') {
+                    showError('Request timed out. Please check your connection and try again.');
+                } else {
+                    showError(err.message || 'Network error. Please try again.');
+                }
             } finally {
+                clearTimeout(timeoutId);
                 joinBtn.disabled = false;
+                nameInput.disabled = false;
                 joinBtn.textContent = 'Join Queue';
             }
         }
@@ -557,7 +584,8 @@
             servingNowSection.classList.remove('hidden');
             leaveBtn.classList.remove('hidden');
             rejoinSection.classList.add('hidden');
-            
+            updateIndicator.classList.remove('hidden');
+
             if (data.status === 'serving') {
                 yourTurn.classList.remove('hidden');
                 statusGrid.classList.add('hidden');
@@ -568,6 +596,7 @@
                 servingNowSection.classList.add('hidden');
                 leaveBtn.classList.add('hidden');
                 rejoinSection.classList.remove('hidden');
+                updateIndicator.classList.add('hidden');
                 stopPolling();
             } else if (data.status === 'left') {
                 leftStatus.classList.remove('hidden');
@@ -576,6 +605,7 @@
                 servingNowSection.classList.add('hidden');
                 leaveBtn.classList.add('hidden');
                 rejoinSection.classList.remove('hidden');
+                updateIndicator.classList.add('hidden');
                 stopPolling();
             } else if (data.status === 'skipped' || data.status === 'expired') {
                 skippedStatus.classList.remove('hidden');
@@ -584,6 +614,7 @@
                 servingNowSection.classList.add('hidden');
                 leaveBtn.classList.add('hidden');
                 rejoinSection.classList.remove('hidden');
+                updateIndicator.classList.add('hidden');
                 stopPolling();
             }
             
