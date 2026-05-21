@@ -1,4 +1,4 @@
-package app.emergent.salonqueue13480893b7
+package com.quevix
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

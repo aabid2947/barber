@@ -1,4 +1,4 @@
-package app.emergent.salonqueue13480893b7
+package com.quevix
 
 import android.app.Application
 import android.content.res.Configuration

@@ -94,13 +94,13 @@ android {
         pickFirst 'lib/arm64-v8a/libworklets.so'
     }
     
-    namespace 'app.emergent.salonqueue13480893b7'
+    namespace 'com.quevix'
     defaultConfig {
-        applicationId 'app.emergent.salonqueue13480893b7'
+        applicationId 'com.quevix'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode 4
+        versionName "1.0.4"
         ndk {
             abiFilters "arm64-v8a"
         }

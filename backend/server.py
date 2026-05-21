@@ -1045,36 +1045,44 @@ async def get_shop_dashboard(shop_id: str, barber_id: str = None):
 
 
 @api_router.post("/queue/{shop_id}/start-next")
-async def start_next_for_shop(shop_id: str, background_tasks: BackgroundTasks, barber_id: str = None):
+async def start_next_for_shop(shop_id: str, background_tasks: BackgroundTasks, barber_id: str = None, chair_number: int = None):
     """Move next waiting customer to serving for a specific shop/barber with timer"""
     today = get_today_key()
-    
+
     # Get shop settings
     shop = await get_shop_by_id(shop_id)
     active_barbers = shop.get("activeBarbers", 1) if shop else 1
     waiting_timer = shop.get("waitingTimer", 15) if shop else 15
-    
+
     # Query filter for this shop
     query_filter = {"dateKey": today}
     if shop_id != "default":
         query_filter["shopId"] = shop_id
-    
+
     # Get barber info if specified
     barber = None
     if barber_id:
         barber = await db.barbers.find_one({"id": barber_id, "shopId": shop_id})
-    
+
     # Get occupied chair numbers
     serving_entries = await db.queue_entries.find(
         {**query_filter, "status": "serving"}
     ).to_list(100)
     occupied_chairs = {e.get("chairNumber") for e in serving_entries if e.get("chairNumber")}
-    
+
     if len(serving_entries) >= active_barbers:
         raise HTTPException(status_code=400, detail="All chairs are occupied")
-    
-    # Find first available chair (or use barber's chair)
-    if barber and barber.get("chairNumber"):
+
+    # Chair selection priority:
+    # 1. Explicit chair_number from the tapped chair card — wins so the customer lands in the
+    #    chair the user actually tapped, even when no barber owns that chair (activeBarbers can
+    #    exceed the barbers list, leaving "ownerless" chairs that would otherwise fall through
+    #    to the lowest-empty-chair branch and surprise the user).
+    # 2. Barber's owned chair (when barber_id is given).
+    # 3. First empty chair in 1..active_barbers.
+    if chair_number and chair_number not in occupied_chairs:
+        available_chair = chair_number
+    elif barber and barber.get("chairNumber") and barber["chairNumber"] not in occupied_chairs:
         available_chair = barber["chairNumber"]
     else:
         available_chair = None
@@ -1123,9 +1131,12 @@ async def start_next_for_shop(shop_id: str, background_tasks: BackgroundTasks, b
     else:
         update_data["expiresAt"] = None  # Timer disabled
     
-    if barber_id:
-        update_data["barberId"] = barber_id
-    
+    # Do not overwrite barberId here. Customers who joined anonymously (general queue,
+    # barberId=null) stay anonymous when promoted — they occupy a chair but no barber
+    # is recorded against the entry, so the frontend leaves the barber name blank.
+    # next_entry already carries the right value: the targeted barber's id (when picked
+    # from that barber's queue) or null (when picked from the general queue).
+
     await db.queue_entries.update_one(
         {"id": next_entry["id"]},
         {"$set": update_data}
@@ -1140,7 +1151,7 @@ async def start_next_for_shop(shop_id: str, background_tasks: BackgroundTasks, b
         "tokenNumber": next_entry["tokenNumber"],
         "name": next_entry["name"],
         "chairNumber": available_chair,
-        "barberId": barber_id,
+        "barberId": next_entry.get("barberId"),
         "expiresAt": update_data.get("expiresAt").isoformat() if update_data.get("expiresAt") else None
     }
 
@@ -1235,9 +1246,9 @@ async def skip_customer(shop_id: str, entry_id: str, background_tasks: Backgroun
         else:
             update_data["expiresAt"] = None  # Timer disabled
         
-        if serving_barber_id:
-            update_data["barberId"] = serving_barber_id
-        
+        # Do not overwrite barberId — keep anonymous customers anonymous on promotion.
+        # next_entry.barberId is already correct (this barber's id or null).
+
         await db.queue_entries.update_one(
             {"id": next_entry["id"]},
             {"$set": update_data}
@@ -1249,7 +1260,7 @@ async def skip_customer(shop_id: str, entry_id: str, background_tasks: Backgroun
             "tokenNumber": next_entry["tokenNumber"],
             "name": next_entry["name"],
             "chairNumber": freed_chair,
-            "barberId": serving_barber_id
+            "barberId": next_entry.get("barberId")
         }
 
     return {
@@ -1324,9 +1335,9 @@ async def done_serving_shop(shop_id: str, entry_id: str, background_tasks: Backg
         else:
             update_data["expiresAt"] = None  # Timer disabled
         
-        if serving_barber_id:
-            update_data["barberId"] = serving_barber_id
-        
+        # Do not overwrite barberId — keep anonymous customers anonymous on promotion.
+        # next_entry.barberId is already correct (this barber's id or null).
+
         await db.queue_entries.update_one(
             {"id": next_entry["id"]},
             {"$set": update_data}
@@ -1339,7 +1350,7 @@ async def done_serving_shop(shop_id: str, entry_id: str, background_tasks: Backg
             "tokenNumber": next_entry["tokenNumber"],
             "name": next_entry["name"],
             "chairNumber": freed_chair,
-            "barberId": serving_barber_id
+            "barberId": next_entry.get("barberId")
         }
         
         # Notify next-in-line (only from same barber's queue or general queue)

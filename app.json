@@ -18,7 +18,7 @@
         "backgroundColor": "#1A1A2E"
       },
       "edgeToEdgeEnabled": true,
-      "package": "app.emergent.salonqueue13480893b7",
+      "package": "com.quevix",
       "googleServicesFile": "./google-services.json"
     },
     "web": {

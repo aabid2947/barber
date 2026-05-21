@@ -38,11 +38,10 @@ Snapshot of the current project tree.
 |   |   |   |-- main/
 |   |   |   |   |-- AndroidManifest.xml
 |   |   |   |   |-- java/
-|   |   |   |   |   |-- app/
-|   |   |   |   |   |   |-- emergent/
-|   |   |   |   |   |   |   |-- salonqueue13480893b7/
-|   |   |   |   |   |   |   |   |-- MainActivity.kt
-|   |   |   |   |   |   |   |   |-- MainApplication.kt
+|   |   |   |   |   |-- com/
+|   |   |   |   |   |   |-- quevix/
+|   |   |   |   |   |   |   |-- MainActivity.kt
+|   |   |   |   |   |   |   |-- MainApplication.kt
 |   |   |   |   |-- res/
 |   |   |   |   |   |-- drawable/
 |   |   |   |   |   |   |-- ic_launcher_background.xml

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Text,
   View,
@@ -107,12 +107,23 @@ export default function Dashboard() {
   // Any key present means a barber-dashboard action is waiting on a backend response; used to
   // visually disable the triggering button so multi-taps don't fire the same mutation twice.
   const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
-  const startNextKey = `start-next:${barberFilter || 'all'}`;
-  const markPending = (key: string) => setPendingActions(prev => {
-    const next = new Set(prev);
-    next.add(key);
-    return next;
-  });
+  const startNextKeyFor = (barberId: string | null) => `start-next:${barberId || 'all'}`;
+
+  // Monotonic generation counter — bumped by every mutation start and every new fetchDashboard.
+  // fetchDashboard captures the gen at request time and drops its response if the gen has moved
+  // on, so in-flight polls can't overwrite a fresher optimistic update or a newer fetch result.
+  // This kills the "skipped customer reappears for ~1s" flicker: a poll started just before SKIP
+  // would otherwise resolve with pre-skip data after the optimistic update and clobber the chair.
+  const fetchGenRef = useRef(0);
+
+  const markPending = (key: string) => {
+    fetchGenRef.current += 1;
+    setPendingActions(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  };
   const clearPending = (key: string) => setPendingActions(prev => {
     if (!prev.has(key)) return prev;
     const next = new Set(prev);
@@ -335,6 +346,9 @@ export default function Dashboard() {
 
   const fetchDashboard = async () => {
     if (!shopId) return;
+    // Capture the current generation. If it advances before we resolve (because a mutation
+    // started or a newer fetch was kicked off), we drop our response as stale.
+    const gen = ++fetchGenRef.current;
     try {
       // Check for session reset — uses fetchWithRetry so a transient blip doesn't drop the poll.
       const sRes = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${shopId}/session-status`);
@@ -363,6 +377,7 @@ export default function Dashboard() {
       const res = await fetchWithRetry(dashboardUrl);
       if (res.ok) {
         const fresh: DashboardData = await res.json();
+        if (gen !== fetchGenRef.current) return; // superseded — drop to avoid clobbering newer state
         setData(fresh);
         // Persist so the next mount can render all chairs without waiting on the network.
         AsyncStorage.setItem(dashboardCacheKey(shopId, barberFilter), JSON.stringify(fresh)).catch(() => {});
@@ -399,31 +414,43 @@ export default function Dashboard() {
 
   // Remove the serving entry and, if there's a next-in-line, promote it into the freed chair.
   // Keeps counts in sync so the chair card re-renders immediately with the new occupant.
+  //
+  // Important: we always perform the *removal* even if the entry can't be found in the current
+  // servingList (e.g. polling raced and replaced the array). Bailing early on `!removed` was the
+  // root cause of "I clicked Skip but the customer stayed in the chair" — if the lookup missed,
+  // the optimistic remove was silently skipped and the chair waited on the post-action fetch.
   const applyOptimisticComplete = (entryId: string, completedStatus: 'completed' | 'skipped') => {
     setData(prev => {
       if (!prev) return prev;
       const removed = prev.servingList?.find(e => e.id === entryId);
-      if (!removed) return prev;
-      const chair = removed.chairNumber ?? null;
-      const barberId = removed.barberId ?? null;
+      // Always strip the entry by id — idempotent if it's already gone.
       let newServing = (prev.servingList || []).filter(e => e.id !== entryId);
       let newWaiting = prev.waitingList || [];
 
-      const pick = pickNextWaiting(newWaiting, barberId);
-      if (pick && chair) {
-        const promoted: ServingEntry = {
-          id: pick.entry.id,
-          tokenNumber: pick.entry.tokenNumber,
-          name: pick.entry.name,
-          createdAt: pick.entry.createdAt,
-          chairNumber: chair,
-          barberId: pick.entry.barberId ?? barberId,
-          barberName: pick.entry.barberName ?? null,
-          expiresAt: null,
-          serviceStartedAt: null,
-        };
-        newServing = [...newServing, promoted];
-        newWaiting = newWaiting.filter((_, i) => i !== pick.index);
+      // Only attempt auto-promotion when we can reason about the freed chair / barber. If the
+      // entry wasn't in the current list (likely a stale modal handle), we still removed it
+      // above; the post-action fetchDashboard will reconcile the promoted next-in-line.
+      if (removed) {
+        const chair = removed.chairNumber ?? null;
+        // Mirror backend: only this barber's queue or general queue, never another barber's.
+        const scopeBarberId = removed.barberId ?? null;
+        const pick = pickNextWaiting(newWaiting, scopeBarberId);
+        if (pick && chair) {
+          const promoted: ServingEntry = {
+            id: pick.entry.id,
+            tokenNumber: pick.entry.tokenNumber,
+            name: pick.entry.name,
+            createdAt: pick.entry.createdAt,
+            chairNumber: chair,
+            // Anonymous joiners stay anonymous on promotion — no chair-owner fallback.
+            barberId: pick.entry.barberId ?? null,
+            barberName: pick.entry.barberName ?? null,
+            expiresAt: null,
+            serviceStartedAt: null,
+          };
+          newServing = [...newServing, promoted];
+          newWaiting = newWaiting.filter((_, i) => i !== pick.index);
+        }
       }
 
       return {
@@ -437,16 +464,20 @@ export default function Dashboard() {
     });
   };
 
-  // Promote the next waiting entry into the first open chair, respecting barberFilter scope.
-  const applyOptimisticStartNext = () => {
+  // Promote the next waiting entry into the first open chair, respecting the target barber scope.
+  // `targetBarberId` is the barber that owns the chair the button was tapped on (or the global
+  // filter when set). `explicitChair` is the chair number the user tapped — it wins over the
+  // barber's owned chair so users always land the customer in the chair they clicked, even when
+  // that chair has no owning barber (activeBarbers > barbers.length).
+  const applyOptimisticStartNext = (targetBarberId: string | null, explicitChair: number | null = null) => {
     setData(prev => {
       if (!prev) return prev;
-      const pick = pickNextWaiting(prev.waitingList, barberFilter);
+      const pick = pickNextWaiting(prev.waitingList, targetBarberId);
       if (!pick) return prev;
-      // Barber's assigned chair (if filter set) takes priority, otherwise first open.
-      const preferredChair = barberFilter
-        ? prev.barbers?.find(b => b.id === barberFilter)?.chairNumber || null
-        : null;
+      // Tapped chair wins; otherwise barber's assigned chair; otherwise first open.
+      const preferredChair = explicitChair ?? (targetBarberId
+        ? prev.barbers?.find(b => b.id === targetBarberId)?.chairNumber || null
+        : null);
       const chair = findOpenChair(prev, preferredChair);
       if (!chair) return prev;
       const promoted: ServingEntry = {
@@ -455,7 +486,8 @@ export default function Dashboard() {
         name: pick.entry.name,
         createdAt: pick.entry.createdAt,
         chairNumber: chair,
-        barberId: pick.entry.barberId ?? barberFilter,
+        // Anonymous joiners stay anonymous on promotion — chair owner is not assigned.
+        barberId: pick.entry.barberId ?? null,
         barberName: pick.entry.barberName ?? null,
         expiresAt: null,
         serviceStartedAt: null,
@@ -472,8 +504,11 @@ export default function Dashboard() {
     });
   };
 
-  // DONE with auto-next — optimistic UI owns the success path.
-  // Full dashboard reload happens ONLY on error; the 15s safety-net poll catches any drift.
+  // DONE with auto-next — optimistic UI updates instantly, then a fetchDashboard reconciles
+  // against backend truth. We always reconcile (not just on error) because the auto-promotion
+  // path on the server has barber-assignment rules that the local guess can't always reproduce
+  // (e.g. only waiting customer belongs to a different barber → backend skips promotion → our
+  // optimistic state would otherwise drift and require a manual refresh).
   const handleDone = async (entryId: string, tokenNum: number) => {
     if (!shopId) return;
     if (pendingActions.has(entryId)) return;
@@ -481,11 +516,9 @@ export default function Dashboard() {
     markPending(entryId);
     applyOptimisticComplete(entryId, 'completed');
     showToast(`✅ #${tokenNum} done.`);
-    let ok = false;
     try {
       const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/done/${entryId}`, { method: 'POST' });
-      ok = res.ok;
-      if (ok) {
+      if (res.ok) {
         const r = await res.json();
         if (r.autoStarted) showToast(`▶ Now serving #${r.autoStarted.tokenNumber}`);
       } else {
@@ -496,7 +529,7 @@ export default function Dashboard() {
       showToast('⚠ Network error — refreshing');
     } finally {
       clearPending(entryId);
-      if (!ok) fetchDashboard();
+      fetchDashboard();
     }
   };
 
@@ -527,7 +560,7 @@ export default function Dashboard() {
     }
   };
 
-  // SKIP - skip customer. Optimistic: remove entry and promote next. Reload only on error.
+  // SKIP - skip customer. Same reconcile-from-server pattern as DONE for the same reason.
   const handleSkip = async (entryId: string, tokenNum: number) => {
     if (!shopId) return;
     if (pendingActions.has(entryId)) return;
@@ -535,35 +568,39 @@ export default function Dashboard() {
     markPending(entryId);
     applyOptimisticComplete(entryId, 'skipped');
     showToast(`⏭ #${tokenNum} skipped.`);
-    let ok = false;
     try {
       const res = await fetchWithRetry(`${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/skip/${entryId}`, { method: 'POST' });
-      ok = res.ok;
-      if (ok) {
+      if (res.ok) {
         const r = await res.json();
         if (r.autoStarted) showToast(`▶ Now serving #${r.autoStarted.tokenNumber}`);
       }
     } catch (e) { console.error(e); }
     finally {
       clearPending(entryId);
-      if (!ok) fetchDashboard();
+      fetchDashboard();
     }
   };
 
-  const handleStartNext = async () => {
+  // CALL NEXT — optimistic promote + always reconcile from server so the chair shows the
+  // exact entry the backend chose (chair number can differ from our local guess).
+  // `chairBarberId` is the barber that owns the chair the user tapped (or null for ownerless
+  // chairs). `chairNumber` is the chair the user tapped — passed to the backend so the customer
+  // is placed in that specific chair rather than the lowest-empty fallback.
+  const handleStartNext = async (chairBarberId: string | null = null, chairNumber: number | null = null) => {
     if (!shopId) return;
-    if (pendingActions.has(startNextKey)) return;
-    markPending(startNextKey);
-    applyOptimisticStartNext();
-    let ok = false;
+    const targetBarberId = chairBarberId ?? barberFilter;
+    const key = startNextKeyFor(targetBarberId);
+    if (pendingActions.has(key)) return;
+    markPending(key);
+    applyOptimisticStartNext(targetBarberId, chairNumber);
     try {
       let url = `${EXPO_PUBLIC_BACKEND_URL}/api/queue/${shopId}/start-next`;
-      if (barberFilter) {
-        url += `?barber_id=${barberFilter}`;
-      }
+      const params: string[] = [];
+      if (targetBarberId) params.push(`barber_id=${targetBarberId}`);
+      if (chairNumber) params.push(`chair_number=${chairNumber}`);
+      if (params.length) url += `?${params.join('&')}`;
       const res = await fetchWithRetry(url, { method: 'POST' });
-      ok = res.ok;
-      if (ok) {
+      if (res.ok) {
         const r = await res.json();
         showToast(`▶ Serving #${r.tokenNumber} (${r.name})`);
       } else {
@@ -572,8 +609,8 @@ export default function Dashboard() {
       }
     } catch (e) { console.error(e); }
     finally {
-      clearPending(startNextKey);
-      if (!ok) fetchDashboard();
+      clearPending(key);
+      fetchDashboard();
     }
   };
 
@@ -798,7 +835,13 @@ export default function Dashboard() {
             // If barber filter is on, use that barber's chair number
             // Otherwise, use sequential chair numbers
             const chairNum = barberFilter ? filteredBarberChair : (i + 1);
-            
+
+            // Resolve the barber that owns this chair. Without filter we look it up from
+            // data.barbers by chairNumber so CALL NEXT can target this barber's queue.
+            const chairBarberId = barberFilter
+              ?? (data?.barbers?.find(b => b.chairNumber === chairNum)?.id ?? null);
+            const chairStartNextKey = startNextKeyFor(chairBarberId);
+
             // Find serving entry for this chair
             let serving = null;
             if (barberFilter) {
@@ -825,7 +868,7 @@ export default function Dashboard() {
               <View key={`chair-${chairNum}-${i}`} style={[s.chairCard, serving ? s.chairOccupied : s.chairEmpty]}>
                 <View style={s.chairHeader}>
                   <Text style={s.chairLabel}>Chair {chairNum}</Text>
-                  {serving?.barberName && <Text style={s.chairBarberName}>({serving.barberName})</Text>}
+                  {serving?.barberId && serving?.barberName ? <Text style={s.chairBarberName}>({serving.barberName})</Text> : null}
                 </View>
                 {serving ? (
                   <View style={s.chairBody}>
@@ -847,27 +890,39 @@ export default function Dashboard() {
                         disabled={pendingActions.has(serving.id)}
                         onPress={() => setConfirmModal({ visible: true, type: 'skip', entry: serving })}
                       >
-                        <Text style={s.btnActionText}>SKIP</Text>
+                        {pendingActions.has(serving.id)
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={s.btnActionText}>SKIP</Text>}
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[s.btnDone, pendingActions.has(serving.id) && s.btnDisabled]}
                         disabled={pendingActions.has(serving.id)}
                         onPress={() => setConfirmModal({ visible: true, type: 'done', entry: serving })}
                       >
-                        <Text style={s.btnActionText}>DONE</Text>
+                        {pendingActions.has(serving.id)
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={s.btnActionText}>DONE</Text>}
                       </TouchableOpacity>
                     </View>
+                    {pendingActions.has(serving.id) && (
+                      <View style={s.chairProcessing}>
+                        <ActivityIndicator size="small" color="#007BFF" />
+                        <Text style={s.chairProcessingText}>Processing…</Text>
+                      </View>
+                    )}
                   </View>
                 ) : (
                   <View style={s.chairBody}>
                     <Text style={s.chairEmptyText}>Empty</Text>
                     {data && data.waitingCount > 0 && (
                       <TouchableOpacity
-                        style={[s.btnCallNext, pendingActions.has(startNextKey) && s.btnDisabled]}
-                        disabled={pendingActions.has(startNextKey)}
-                        onPress={handleStartNext}
+                        style={[s.btnCallNext, pendingActions.has(chairStartNextKey) && s.btnDisabled]}
+                        disabled={pendingActions.has(chairStartNextKey)}
+                        onPress={() => handleStartNext(chairBarberId, chairNum)}
                       >
-                        <Text style={s.btnCallNextText}>CALL NEXT</Text>
+                        {pendingActions.has(chairStartNextKey)
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={s.btnCallNextText}>CALL NEXT</Text>}
                       </TouchableOpacity>
                     )}
                   </View>
@@ -887,7 +942,7 @@ export default function Dashboard() {
               <Text style={s.waitingToken}>#{e.tokenNumber}</Text>
               <View style={s.waitingInfo}>
                 <Text style={s.waitingName}>{e.name}</Text>
-                {e.barberName && <Text style={s.waitingBarber}>→ {e.barberName}</Text>}
+                {e.barberId && e.barberName ? <Text style={s.waitingBarber}>→ {e.barberName}</Text> : null}
               </View>
             </View>
           ))
@@ -926,9 +981,9 @@ export default function Dashboard() {
               onPress={() => setShowAddBarberPicker(true)}
             >
               <Text style={s.addBarberDropdownText}>
-                {addBarberSelection 
-                  ? data.barbers.find(b => b.id === addBarberSelection)?.name || 'Select'
-                  : 'Any Barber'}
+                {addBarberSelection
+                  ? data.barbers.find(b => b.id === addBarberSelection)?.name || 'Select Barber'
+                  : 'Select Barber'}
               </Text>
               <Text style={s.filterDropdownArrow}>▼</Text>
             </TouchableOpacity>
@@ -987,7 +1042,7 @@ export default function Dashboard() {
                 onPress={() => { setAddBarberSelection(null); setShowAddBarberPicker(false); }}
               >
                 <Text style={[s.pickerItemText, !addBarberSelection && s.pickerItemTextSelected]}>
-                  Any Available Barber
+                  Select Barber
                 </Text>
               </TouchableOpacity>
               {data?.barbers?.filter(b => b.isActive).map((b) => (
@@ -1129,6 +1184,8 @@ const s = StyleSheet.create({
   chairToken: { fontFamily: fontFamilies.display, fontSize: typography.size.display, fontWeight: typography.weight.extrabold, color: colors.brandPrimary, letterSpacing: typography.tracking.wide },
   chairName: { fontSize: 16, color: colors.textPrimary, marginTop: 4 },
   chairEmptyText: { fontSize: 15, color: colors.textMuted },
+  chairProcessing: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  chairProcessingText: { fontSize: 13, color: colors.textSecondary, fontStyle: 'italic' },
   chairActions: { flexDirection: 'row', gap: 8 },
   btnStart: { backgroundColor: colors.info, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnSkip: { backgroundColor: colors.warning, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
