@@ -5,6 +5,9 @@ Snapshot of the current project tree.
 ```text
 .
 |-- .env
+|-- .github/
+|   |-- workflows/
+|   |   |-- build-apk.yml
 |-- .gitignore
 |-- app.json
 |-- app_crash_error.txt

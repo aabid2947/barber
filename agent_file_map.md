@@ -2,6 +2,10 @@
 
 This map gives short, practical summaries so agents can quickly understand where logic lives.
 
+## CI / Workflows
+
+- `.github/workflows/build-apk.yml`: GitHub Actions workflow that builds the signed release APK on every push to `revamp` (and on manual dispatch). Decodes keystore + google-services.json from secrets, writes `.env`, runs `assembleRelease`, uploads the APK as an artifact.
+
 ## Root Files
 
 - `.env`: Frontend runtime environment values (currently sets `EXPO_PUBLIC_BACKEND_URL`).
