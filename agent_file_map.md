@@ -81,8 +81,8 @@ This map gives short, practical summaries so agents can quickly understand where
 
 ### Android Kotlin Entry Points
 
-- `android/app/src/main/java/app/emergent/salonqueue13480893b7/MainActivity.kt`: React activity bootstrap and splash/new-arch delegate wiring.
-- `android/app/src/main/java/app/emergent/salonqueue13480893b7/MainApplication.kt`: React application host setup and Expo lifecycle integration.
+- `android/app/src/main/java/com/quevix/MainActivity.kt`: React activity bootstrap and splash/new-arch delegate wiring.
+- `android/app/src/main/java/com/quevix/MainApplication.kt`: React application host setup and Expo lifecycle integration.
 
 ### Android Resources
 
