@@ -1,22 +1,30 @@
+import { Feather } from '@expo/vector-icons';
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  Text,
-  View,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  TextInput,
-  Platform,
-  Modal,
-} from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { registerMobilePushDevice, unregisterMobilePushDevice } from '../lib/mobileNotifications';
 import { getBackendBaseUrl } from '../lib/backendUrl';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
-import { colors, fontFamilies, typography } from '../lib/theme';
+import {
+  Avatar,
+  BottomSheet,
+  Button,
+  Card,
+  ConfirmSheet,
+  EmptyState,
+  IconCircle,
+  Pill,
+  PressableScale,
+  Screen,
+  ScreenHeader,
+  Section,
+  Segmented,
+  StatTile,
+  TextField,
+  Toast,
+  useToast,
+} from '../src/components/ui';
+import { palette, radius, space, type } from '../src/theme/tokens';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const BARBER_AUTH_KEY = '@barber_authed';
@@ -66,39 +74,38 @@ interface DashboardData {
 }
 
 export default function Dashboard() {
-  // Bottom safe-area inset so the bottom of every ScrollView clears the
-  // Android 3-button nav / iOS home indicator.
-  const insets = useSafeAreaInsets();
+  // Toast replaces the old custom banner — same trigger points / messages.
+  const { toast, showToast } = useToast();
+
   const [isAuth, setIsAuth] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [data, setData] = useState<DashboardData | null>(null);
-  const [toast, setToast] = useState('');
   const [sessionExpired, setSessionExpired] = useState(false);
   const [addName, setAddName] = useState('');
   const [barberPushEnabled, setBarberPushEnabled] = useState(false);
   const [barberPushLoading, setBarberPushLoading] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
-  
+
   // Login state (Username + Password only)
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  
+
   // Shop state
   const [shopId, setShopId] = useState<string | null>(null);
   const [shopName, setShopName] = useState<string>('');
-  
+
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
     visible: boolean;
     type: 'done' | 'skip' | 'start';
     entry?: ServingEntry;
   }>({ visible: false, type: 'done' });
-  
+
   // Barber filter state
   const [barberFilter, setBarberFilter] = useState<string | null>(null);
   const [showBarberPicker, setShowBarberPicker] = useState(false);
-  
+
   // Add customer with barber selection
   const [addBarberSelection, setAddBarberSelection] = useState<string | null>(null);
   const [showAddBarberPicker, setShowAddBarberPicker] = useState(false);
@@ -243,11 +250,6 @@ export default function Dashboard() {
       const token = await AsyncStorage.getItem(BARBER_PUSH_TOKEN_KEY);
       if (stored === 'true' || !!token) setBarberPushEnabled(true);
     } catch (e) { /* ignore */ }
-  };
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 3000);
   };
 
   // Login with Username + Password
@@ -672,578 +674,528 @@ export default function Dashboard() {
 
   // Loading state
   if (loading) {
-    return <View style={s.center}><ActivityIndicator size="large" color={colors.brandPrimary} /></View>;
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={palette.accent} />
+      </View>
+    );
   }
 
   // Login screen (Username + Password only)
   if (!isAuth) {
     return (
-      <KeyboardAwareScrollView
-        style={s.container}
-        contentContainerStyle={[s.scrollPad, { paddingBottom: 16 + insets.bottom }]}
-        bottomOffset={24}
-      >
-        <View style={s.headerSection}>
-          <Text style={s.brand}>Quevix</Text>
-          <Text style={s.brandSub}>Smart Queue Platform</Text>
-          <Text style={s.subtitle}>Barber Dashboard</Text>
-        </View>
-        {sessionExpired && (
-          <View style={s.expiredBox}>
-            <Text style={s.expiredTitle}>Session Expired</Text>
-            <Text style={s.expiredMsg}>Admin reset your session. Please login again.</Text>
-          </View>
-        )}
-        <View style={s.card}>
-          <Text style={s.label}>Username</Text>
-          <TextInput
-            style={s.input}
-            value={username}
-            onChangeText={(t) => { setUsername(t); setLoginError(''); }}
-            placeholder="Enter username"
-            placeholderTextColor={colors.textPlaceholder}
-            autoCapitalize="none"
+      <>
+        <Toast message={toast} />
+        <Screen>
+          <ScreenHeader
+            eyebrow="Quevix · Smart Queue"
+            title="Barber dashboard"
+            subtitle="Sign in to manage your floor."
           />
-          <Text style={s.label}>Password</Text>
-          <TextInput
-            style={s.input}
-            value={password}
-            onChangeText={(t) => { setPassword(t); setLoginError(''); }}
-            placeholder="Enter password"
-            placeholderTextColor={colors.textPlaceholder}
-            secureTextEntry
-          />
-          {loginError ? <Text style={s.error}>{loginError}</Text> : null}
-          <TouchableOpacity style={s.btnPrimary} onPress={handleLogin}>
-            <Text style={s.btnPrimaryText}>LOGIN</Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAwareScrollView>
+
+          {sessionExpired && (
+            <Card
+              tint={palette.warnAmberSoft}
+              borderColor={palette.warnAmberLine}
+              level="flat"
+              padding="lg"
+              style={styles.expiredBox}
+            >
+              <Feather name="alert-triangle" size={18} color={palette.warnAmber} />
+              <View style={{ flex: 1 }}>
+                <Text style={[type.heading, { color: palette.warnAmber }]}>Session expired</Text>
+                <Text style={[type.small, { color: palette.warnAmber, marginTop: 2 }]}>
+                  Admin reset your session. Please login again.
+                </Text>
+              </View>
+            </Card>
+          )}
+
+          <Card style={{ marginTop: space.xl }}>
+            <TextField
+              label="Username"
+              value={username}
+              onChangeText={(t) => { setUsername(t); setLoginError(''); }}
+              placeholder="Enter username"
+              autoCapitalize="none"
+            />
+            <View style={{ marginTop: space.xl }}>
+              <TextField
+                label="Password"
+                value={password}
+                onChangeText={(t) => { setPassword(t); setLoginError(''); }}
+                placeholder="Enter password"
+                secureTextEntry
+              />
+            </View>
+            {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
+            <Button
+              label="Login"
+              icon="log-in"
+              size="lg"
+              fullWidth
+              onPress={handleLogin}
+              style={{ marginTop: space['2xl'] }}
+            />
+          </Card>
+        </Screen>
+      </>
     );
   }
 
-  // Dashboard — KeyboardAwareScrollView so the Add-Customer input scrolls into view when focused.
+  // When barber filter is ON, show only 1 chair for that barber; otherwise show all chairs.
+  const chairsToShow = barberFilter ? 1 : (data?.activeBarbers || 1);
+  // Get the chair number for filtered barber
+  const filteredBarberChair = barberFilter
+    ? data?.barbers?.find(b => b.id === barberFilter)?.chairNumber || 1
+    : null;
+
+  const filterOptions = data?.barbers
+    ? [{ key: 'all', label: 'All barbers' }, ...data.barbers.map(b => ({ key: b.id, label: b.name }))]
+    : [];
+
+  const addBarberName = addBarberSelection
+    ? data?.barbers?.find(b => b.id === addBarberSelection)?.name
+    : null;
+
+  // Dashboard — Screen's ScrollView (keyboardShouldPersistTaps="handled") keeps the
+  // Add-Customer input reachable; BottomSheets handle their own keyboard avoidance.
   return (
-    <KeyboardAwareScrollView
-      style={s.container}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-      bottomOffset={24}
-    >
-      {/* Header with Shop Name and Logout */}
-      <View style={s.headerBar}>
-        <View>
-          <Text style={s.shopTitle}>{shopName || 'Dashboard'}</Text>
-          <Text style={s.shopIdText}>ID: {shopId}</Text>
-        </View>
-        <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
-          <Text style={s.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
+    <>
+      <Toast message={toast} />
+      <Screen>
+        <ScreenHeader
+          eyebrow={`Quevix · ID ${shopId}`}
+          title={shopName || 'Dashboard'}
+          right={<Button label="Logout" variant="secondary" size="sm" icon="log-out" onPress={handleLogout} />}
+        />
 
-      {toast ? <View style={s.toast}><Text style={s.toastText}>{toast}</Text></View> : null}
-
-      {/* Barber Filter Section (only show if barbers exist) */}
-      {data?.barbers && data.barbers.length > 0 && (
-        <View style={s.filterSection}>
-          <Text style={s.filterLabel}>Filter by Barber:</Text>
-          <TouchableOpacity 
-            style={s.filterDropdown}
-            onPress={() => setShowBarberPicker(true)}
-          >
-            <Text style={s.filterDropdownText}>
-              {barberFilter 
-                ? (data.barbers.find(b => b.id === barberFilter)?.name || 'Select Barber')
-                : 'All Barbers'}
-            </Text>
-            <Text style={s.filterDropdownArrow}>▼</Text>
-          </TouchableOpacity>
-          {barberFilter && (
-            <TouchableOpacity style={s.clearFilterBtn} onPress={() => setBarberFilter(null)}>
-              <Text style={s.clearFilterText}>✕ Clear</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-
-      {/* Push Notifications */}
-      {!barberPushEnabled ? (
-        <View style={s.pushSection}>
-          <TouchableOpacity style={s.btnNotify} onPress={handleEnableBarberPush} disabled={barberPushLoading}>
-            <Text style={s.btnNotifyText}>
-              {barberPushLoading
-                ? 'Enabling...'
+        {/* Push notifications */}
+        {!barberPushEnabled ? (
+          <Button
+            label={
+              barberPushLoading
+                ? 'Enabling…'
                 : Platform.OS === 'web'
-                  ? '🔔 Enable Browser Notifications'
-                  : '🔔 Enable Mobile Notifications'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={s.pushEnabled}>
-          <Text style={s.pushEnabledText}>🔔 Notifications enabled</Text>
-        </View>
-      )}
+                  ? 'Enable browser notifications'
+                  : 'Enable mobile notifications'
+            }
+            variant="secondary"
+            icon="bell"
+            fullWidth
+            loading={barberPushLoading}
+            onPress={handleEnableBarberPush}
+          />
+        ) : (
+          <Card tint={palette.liveTealSoft} borderColor={palette.liveTealLine} level="flat" padding="md" style={styles.pushEnabled}>
+            <Feather name="bell" size={15} color={palette.liveTeal} />
+            <Text style={[type.small, { color: palette.liveTeal, fontWeight: '700' }]}>Notifications enabled</Text>
+          </Card>
+        )}
 
-      {/* Notification logs now appear in console (adb logcat or Metro bundler output) */}
+        {/* Stats */}
+        <View style={styles.stats}>
+          <StatTile value={data?.activeBarbers || 0} label="Chairs" />
+          <StatTile value={data?.servingCount || 0} label="Serving" tone="teal" />
+          <StatTile value={data?.waitingCount || 0} label="Waiting" tone="amber" />
+          <StatTile value={data?.completedCount || 0} label="Done" tone="accent" />
+        </View>
 
-      {/* Stats */}
-      <View style={s.statsRow}>
-        <View style={s.statBox}>
-          <Text style={s.statNum}>{data?.activeBarbers || 0}</Text>
-          <Text style={s.statLabel}>Chairs</Text>
-        </View>
-        <View style={s.statBox}>
-          <Text style={s.statNum}>{data?.servingCount || 0}</Text>
-          <Text style={s.statLabel}>Serving</Text>
-        </View>
-        <View style={s.statBox}>
-          <Text style={s.statNum}>{data?.waitingCount || 0}</Text>
-          <Text style={s.statLabel}>Waiting</Text>
-        </View>
-        <View style={s.statBox}>
-          <Text style={s.statNum}>{data?.completedCount || 0}</Text>
-          <Text style={s.statLabel}>Done</Text>
-        </View>
-      </View>
-
-      {/* Chairs Section */}
-      <View style={s.section}>
-        <Text style={s.sectionTitle}>
-          {barberFilter 
-            ? `Chair (${data?.barbers?.find(b => b.id === barberFilter)?.name || 'Filtered'})`
-            : `Chairs`}
-        </Text>
-        {!data ? (
-          // First-ever login, no cache yet — don't guess at a chair count.
-          <View style={s.chairsLoader}>
-            <ActivityIndicator size="small" color={colors.brandPrimary} />
-            <Text style={s.chairsLoaderText}>Loading chairs...</Text>
+        {/* Barber filter (only show if barbers exist) */}
+        {data?.barbers && data.barbers.length > 0 && (
+          <View style={{ marginTop: space['2xl'] }}>
+            <Segmented
+              options={filterOptions}
+              value={barberFilter ?? 'all'}
+              onChange={(k) => setBarberFilter(k === 'all' ? null : k)}
+            />
           </View>
-        ) : (() => {
-          // When barber filter is ON, show only 1 chair for that barber
-          // When barber filter is OFF, show all chairs
-          const chairsToShow = barberFilter
-            ? 1
-            : (data.activeBarbers || 1);
-          
-          // Get the chair number for filtered barber
-          const filteredBarberChair = barberFilter 
-            ? data?.barbers?.find(b => b.id === barberFilter)?.chairNumber || 1
-            : null;
-          
-          return Array.from({ length: chairsToShow }, (_, i) => {
-            // If barber filter is on, use that barber's chair number
-            // Otherwise, use sequential chair numbers
-            const chairNum = barberFilter ? filteredBarberChair : (i + 1);
+        )}
 
-            // Resolve the barber that owns this chair. Without filter we look it up from
-            // data.barbers by chairNumber so CALL NEXT can target this barber's queue.
-            const chairBarberId = barberFilter
-              ?? (data?.barbers?.find(b => b.chairNumber === chairNum)?.id ?? null);
-            const chairStartNextKey = startNextKeyFor(chairBarberId);
+        {/* Chairs */}
+        <Section
+          title={barberFilter
+            ? `Chair · ${data?.barbers?.find(b => b.id === barberFilter)?.name || 'Filtered'}`
+            : 'Chairs'}
+        >
+          {!data ? (
+            // First-ever login, no cache yet — don't guess at a chair count.
+            <Card level="sm" style={styles.chairsLoader}>
+              <ActivityIndicator size="small" color={palette.accent} />
+              <Text style={type.bodyMuted}>Loading chairs…</Text>
+            </Card>
+          ) : (
+            <View style={{ gap: space.md }}>
+              {Array.from({ length: Math.max(1, chairsToShow) }, (_, i) => {
+                // If barber filter is on, use that barber's chair number; otherwise sequential.
+                const chairNum = barberFilter ? (filteredBarberChair as number) : (i + 1);
 
-            // Find serving entry for this chair
-            let serving = null;
-            if (barberFilter) {
-              // When filtered, show the serving entry for this specific barber
-              serving = data?.servingList?.find(e => e.barberId === barberFilter) || null;
-            } else {
-              serving = data?.servingList?.find(e => e.chairNumber === chairNum) || null;
-            }
-            
-            // Calculate remaining time (expiresAt is in UTC)
-            let timerDisplay = null;
-            let timerMins = 0;
-            if (serving?.expiresAt && !serving?.serviceStartedAt) {
-              // Add 'Z' to make it parse as UTC
-              const expiresAtStr = serving.expiresAt.endsWith('Z') ? serving.expiresAt : serving.expiresAt + 'Z';
-              const expiresAt = new Date(expiresAtStr);
-              const now = new Date();
-              const diffMs = expiresAt.getTime() - now.getTime();
-              timerMins = Math.max(0, Math.ceil(diffMs / 60000));
-              timerDisplay = timerMins > 0 ? `⏱ ${timerMins} min left` : '⚠️ Timer expired!';
-            }
-            
-            return (
-              <View key={`chair-${chairNum}-${i}`} style={[s.chairCard, serving ? s.chairOccupied : s.chairEmpty]}>
-                <View style={s.chairHeader}>
-                  <Text style={s.chairLabel}>Chair {chairNum}</Text>
-                  {serving?.barberId && serving?.barberName ? <Text style={s.chairBarberName}>({serving.barberName})</Text> : null}
-                </View>
-                {serving ? (
-                  <View style={s.chairBody}>
-                    <View style={s.chairCustomer}>
-                      <Text style={s.chairToken}>#{serving.tokenNumber}</Text>
-                      <Text style={s.chairName}>{serving.name}</Text>
-                      {timerDisplay && (
-                        <Text style={[s.timerText, timerMins === 0 && s.timerExpired]}>
-                          {timerDisplay}
+                // Resolve the barber that owns this chair. Without filter we look it up from
+                // data.barbers by chairNumber so CALL NEXT can target this barber's queue.
+                const chairBarberId = barberFilter
+                  ?? (data?.barbers?.find(b => b.chairNumber === chairNum)?.id ?? null);
+                const chairStartNextKey = startNextKeyFor(chairBarberId);
+                const chairBarberName = data?.barbers?.find(b => b.chairNumber === chairNum)?.name ?? null;
+
+                // Find serving entry for this chair
+                let serving: ServingEntry | null = null;
+                if (barberFilter) {
+                  // When filtered, show the serving entry for this specific barber
+                  serving = data?.servingList?.find(e => e.barberId === barberFilter) || null;
+                } else {
+                  serving = data?.servingList?.find(e => e.chairNumber === chairNum) || null;
+                }
+
+                // Calculate remaining time (expiresAt is in UTC)
+                let timerDisplay: string | null = null;
+                let timerMins = 0;
+                if (serving?.expiresAt && !serving?.serviceStartedAt) {
+                  // Add 'Z' to make it parse as UTC
+                  const expiresAtStr = serving.expiresAt.endsWith('Z') ? serving.expiresAt : serving.expiresAt + 'Z';
+                  const expiresAt = new Date(expiresAtStr);
+                  const now = new Date();
+                  const diffMs = expiresAt.getTime() - now.getTime();
+                  timerMins = Math.max(0, Math.ceil(diffMs / 60000));
+                  timerDisplay = timerMins > 0 ? `${timerMins} min left` : 'Timer expired';
+                }
+
+                const occupied = !!serving;
+                const isPending = !!serving && pendingActions.has(serving.id);
+                const callNextPending = pendingActions.has(chairStartNextKey);
+
+                return (
+                  <Card
+                    key={`chair-${chairNum}-${i}`}
+                    level={occupied ? 'md' : 'sm'}
+                    tint={occupied ? palette.surface : palette.surfaceMuted}
+                    style={occupied ? undefined : styles.chairEmpty}
+                  >
+                    <View style={styles.chairHead}>
+                      <View style={styles.chairTag}>
+                        <Feather name="scissors" size={14} color={occupied ? palette.accent : palette.inkFaint} />
+                        <Text style={[styles.chairTagText, { color: occupied ? palette.ink : palette.inkMuted }]}>
+                          Chair {chairNum}
                         </Text>
-                      )}
-                      {serving.serviceStartedAt && (
-                        <Text style={s.serviceStarted}>✓ Service in progress</Text>
-                      )}
+                      </View>
+                      {serving?.barberId && serving?.barberName ? (
+                        <Text style={styles.chairBarber}>{serving.barberName}</Text>
+                      ) : chairBarberName ? (
+                        <Text style={styles.chairBarber}>{chairBarberName}</Text>
+                      ) : null}
                     </View>
-                    <View style={s.chairActions}>
-                      <TouchableOpacity
-                        style={[s.btnSkip, pendingActions.has(serving.id) && s.btnDisabled]}
-                        disabled={pendingActions.has(serving.id)}
-                        onPress={() => setConfirmModal({ visible: true, type: 'skip', entry: serving })}
-                      >
-                        {pendingActions.has(serving.id)
-                          ? <ActivityIndicator color="#fff" size="small" />
-                          : <Text style={s.btnActionText}>SKIP</Text>}
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[s.btnDone, pendingActions.has(serving.id) && s.btnDisabled]}
-                        disabled={pendingActions.has(serving.id)}
-                        onPress={() => setConfirmModal({ visible: true, type: 'done', entry: serving })}
-                      >
-                        {pendingActions.has(serving.id)
-                          ? <ActivityIndicator color="#fff" size="small" />
-                          : <Text style={s.btnActionText}>DONE</Text>}
-                      </TouchableOpacity>
-                    </View>
-                    {pendingActions.has(serving.id) && (
-                      <View style={s.chairProcessing}>
-                        <ActivityIndicator size="small" color="#007BFF" />
-                        <Text style={s.chairProcessingText}>Processing…</Text>
+
+                    {serving ? (
+                      <>
+                        <View style={styles.chairBody}>
+                          <Text style={styles.chairToken}>#{serving.tokenNumber}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={type.heading}>{serving.name}</Text>
+                            {serving.serviceStartedAt ? (
+                              <View style={styles.inlineNote}>
+                                <Feather name="check" size={13} color={palette.liveTeal} />
+                                <Text style={[styles.inlineNoteText, { color: palette.liveTeal }]}>Service in progress</Text>
+                              </View>
+                            ) : timerDisplay ? (
+                              <View style={styles.inlineNote}>
+                                <Feather name="clock" size={13} color={timerMins === 0 ? palette.dangerRose : palette.warnAmber} />
+                                <Text style={[styles.inlineNoteText, { color: timerMins === 0 ? palette.dangerRose : palette.warnAmber }]}>
+                                  {timerDisplay}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+                        <View style={styles.chairActions}>
+                          <View style={{ flex: 1 }}>
+                            <Button
+                              label="Skip"
+                              variant="secondary"
+                              icon="skip-forward"
+                              fullWidth
+                              loading={isPending}
+                              disabled={isPending}
+                              onPress={() => setConfirmModal({ visible: true, type: 'skip', entry: serving! })}
+                            />
+                          </View>
+                          <View style={{ flex: 1.3 }}>
+                            <Button
+                              label="Done"
+                              variant="success"
+                              icon="check"
+                              fullWidth
+                              loading={isPending}
+                              disabled={isPending}
+                              onPress={() => setConfirmModal({ visible: true, type: 'done', entry: serving! })}
+                            />
+                          </View>
+                        </View>
+                        {isPending && (
+                          <View style={styles.chairProcessing}>
+                            <ActivityIndicator size="small" color={palette.accent} />
+                            <Text style={styles.chairProcessingText}>Processing…</Text>
+                          </View>
+                        )}
+                      </>
+                    ) : (
+                      <View style={styles.chairEmptyBody}>
+                        <Text style={styles.chairEmptyText}>Open chair</Text>
+                        {data && data.waitingCount > 0 ? (
+                          <Button
+                            label="Call next"
+                            icon="arrow-up"
+                            loading={callNextPending}
+                            disabled={callNextPending}
+                            onPress={() => handleStartNext(chairBarberId, chairNum)}
+                          />
+                        ) : (
+                          <Text style={type.small}>No one waiting</Text>
+                        )}
                       </View>
                     )}
+                  </Card>
+                );
+              })}
+            </View>
+          )}
+        </Section>
+
+        {/* Waiting list */}
+        <Section title={`Waiting · ${data?.waitingCount || 0}`}>
+          {data?.waitingList?.length ? (
+            <View style={{ gap: space.sm }}>
+              {data.waitingList.map((e) => (
+                <Card key={e.id} level="sm" padding="md" style={styles.waitRow}>
+                  <View style={styles.waitToken}>
+                    <Text style={styles.waitTokenText}>#{e.tokenNumber}</Text>
                   </View>
+                  <Text style={[type.body, { flex: 1 }]}>{e.name}</Text>
+                  {e.barberId && e.barberName
+                    ? <Pill label={e.barberName} tone="accent" />
+                    : <Pill label="Any barber" tone="neutral" />}
+                </Card>
+              ))}
+            </View>
+          ) : (
+            <Card level="sm">
+              <EmptyState icon="coffee" title="No one waiting" hint="The queue is clear right now." />
+            </Card>
+          )}
+        </Section>
+
+        {/* Add customer */}
+        <Section title="Add a walk-in">
+          <Card>
+            <View style={styles.addRow}>
+              <View style={{ flex: 1 }}>
+                <TextField
+                  value={addName}
+                  onChangeText={setAddName}
+                  placeholder="Customer name"
+                  autoCapitalize="words"
+                />
+              </View>
+              <Button
+                label="Add"
+                icon="plus"
+                loading={pendingActions.has('add-customer')}
+                disabled={pendingActions.has('add-customer')}
+                onPress={handleAddCustomer}
+              />
+            </View>
+            {/* Barber selection for Add Customer */}
+            {data?.barbers && data.barbers.length > 0 && (
+              <PressableScale onPress={() => setShowAddBarberPicker(true)} style={styles.assignRow}>
+                <Feather name="user-check" size={16} color={palette.inkMuted} />
+                <Text style={styles.assignText}>
+                  {addBarberName ? `Assigned to ${addBarberName}` : 'Assign to a barber (optional)'}
+                </Text>
+                {addBarberSelection ? (
+                  <PressableScale onPress={() => setAddBarberSelection(null)} hitSlop={8}>
+                    <Feather name="x" size={18} color={palette.inkFaint} />
+                  </PressableScale>
                 ) : (
-                  <View style={s.chairBody}>
-                    <Text style={s.chairEmptyText}>Empty</Text>
-                    {data && data.waitingCount > 0 && (
-                      <TouchableOpacity
-                        style={[s.btnCallNext, pendingActions.has(chairStartNextKey) && s.btnDisabled]}
-                        disabled={pendingActions.has(chairStartNextKey)}
-                        onPress={() => handleStartNext(chairBarberId, chairNum)}
-                      >
-                        {pendingActions.has(chairStartNextKey)
-                          ? <ActivityIndicator color="#fff" size="small" />
-                          : <Text style={s.btnCallNextText}>CALL NEXT</Text>}
-                      </TouchableOpacity>
-                    )}
-                  </View>
+                  <Feather name="chevron-down" size={18} color={palette.inkFaint} />
                 )}
-              </View>
-            );
-          });
-        })()}
-      </View>
-
-      {/* Waiting List */}
-      <View style={s.section}>
-        <Text style={s.sectionTitle}>Waiting ({data?.waitingCount || 0})</Text>
-        {data?.waitingList?.length ? (
-          data.waitingList.map((e) => (
-            <View key={e.id} style={s.waitingItem}>
-              <Text style={s.waitingToken}>#{e.tokenNumber}</Text>
-              <View style={s.waitingInfo}>
-                <Text style={s.waitingName}>{e.name}</Text>
-                {e.barberId && e.barberName ? <Text style={s.waitingBarber}>→ {e.barberName}</Text> : null}
-              </View>
-            </View>
-          ))
-        ) : (
-          <Text style={s.emptyText}>No one waiting</Text>
-        )}
-      </View>
-
-      {/* Add Customer */}
-      <View style={s.section}>
-        <Text style={s.sectionTitle}>Add Customer</Text>
-        <View style={s.addRow}>
-          <TextInput
-            style={[s.input, { flex: 1 }]}
-            value={addName}
-            onChangeText={setAddName}
-            placeholder="Customer name"
-            placeholderTextColor={colors.textPlaceholder}
-          />
-          <TouchableOpacity
-            style={[s.btnAdd, pendingActions.has('add-customer') && s.btnDisabled]}
-            disabled={pendingActions.has('add-customer')}
-            onPress={handleAddCustomer}
-          >
-            {pendingActions.has('add-customer')
-              ? <ActivityIndicator color={colors.white} />
-              : <Text style={s.btnAddText}>ADD</Text>}
-          </TouchableOpacity>
-        </View>
-        {/* Barber Selection for Add Customer */}
-        {data?.barbers && data.barbers.length > 0 && (
-          <View style={s.addBarberRow}>
-            <Text style={s.addBarberLabel}>Assign to barber:</Text>
-            <TouchableOpacity 
-              style={s.addBarberDropdown}
-              onPress={() => setShowAddBarberPicker(true)}
-            >
-              <Text style={s.addBarberDropdownText}>
-                {addBarberSelection
-                  ? data.barbers.find(b => b.id === addBarberSelection)?.name || 'Select Barber'
-                  : 'Select Barber'}
-              </Text>
-              <Text style={s.filterDropdownArrow}>▼</Text>
-            </TouchableOpacity>
-            {addBarberSelection && (
-              <TouchableOpacity style={s.clearFilterBtn} onPress={() => setAddBarberSelection(null)}>
-                <Text style={s.clearFilterText}>✕</Text>
-              </TouchableOpacity>
+              </PressableScale>
             )}
-          </View>
-        )}
-      </View>
+          </Card>
+        </Section>
+      </Screen>
 
-      <View style={{ height: 40 }} />
+      {/* Barber picker sheet (for filter) */}
+      <BottomSheet visible={showBarberPicker} onClose={() => setShowBarberPicker(false)} title="Select barber" scroll>
+        <PickerRow
+          label="All barbers"
+          leading={<IconCircle name="users" size={40} />}
+          selected={!barberFilter}
+          onPress={() => { setBarberFilter(null); setShowBarberPicker(false); }}
+        />
+        {data?.barbers?.map((b) => (
+          <PickerRow
+            key={b.id}
+            label={b.name}
+            sub={`Chair ${b.chairNumber}`}
+            leading={<Avatar name={b.name} size={40} />}
+            selected={barberFilter === b.id}
+            onPress={() => { setBarberFilter(b.id); setShowBarberPicker(false); }}
+          />
+        ))}
+      </BottomSheet>
 
-      {/* Barber Picker Modal (for filter) */}
-      <Modal visible={showBarberPicker} transparent animationType="fade">
-        <View style={s.overlay}>
-          <View style={s.pickerBox}>
-            <Text style={s.pickerTitle}>Select Barber</Text>
-            <ScrollView style={s.pickerList}>
-              <TouchableOpacity 
-                style={[s.pickerItem, !barberFilter && s.pickerItemSelected]}
-                onPress={() => { setBarberFilter(null); setShowBarberPicker(false); }}
-              >
-                <Text style={[s.pickerItemText, !barberFilter && s.pickerItemTextSelected]}>
-                  All Barbers
-                </Text>
-              </TouchableOpacity>
-              {data?.barbers?.map((b) => (
-                <TouchableOpacity 
-                  key={b.id}
-                  style={[s.pickerItem, barberFilter === b.id && s.pickerItemSelected]}
-                  onPress={() => { setBarberFilter(b.id); setShowBarberPicker(false); }}
-                >
-                  <Text style={[s.pickerItemText, barberFilter === b.id && s.pickerItemTextSelected]}>
-                    {b.name} (Chair {b.chairNumber})
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={s.pickerCancel} onPress={() => setShowBarberPicker(false)}>
-              <Text style={s.pickerCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* Barber picker sheet (for adding customer) */}
+      <BottomSheet visible={showAddBarberPicker} onClose={() => setShowAddBarberPicker(false)} title="Assign to barber" scroll>
+        <PickerRow
+          label="Any available barber"
+          leading={<IconCircle name="users" size={40} />}
+          selected={!addBarberSelection}
+          onPress={() => { setAddBarberSelection(null); setShowAddBarberPicker(false); }}
+        />
+        {data?.barbers?.filter(b => b.isActive).map((b) => (
+          <PickerRow
+            key={b.id}
+            label={b.name}
+            sub={`Chair ${b.chairNumber}`}
+            leading={<Avatar name={b.name} size={40} />}
+            selected={addBarberSelection === b.id}
+            onPress={() => { setAddBarberSelection(b.id); setShowAddBarberPicker(false); }}
+          />
+        ))}
+      </BottomSheet>
 
-      {/* Barber Picker Modal (for adding customer) */}
-      <Modal visible={showAddBarberPicker} transparent animationType="fade">
-        <View style={s.overlay}>
-          <View style={s.pickerBox}>
-            <Text style={s.pickerTitle}>Assign to Barber</Text>
-            <ScrollView style={s.pickerList}>
-              <TouchableOpacity 
-                style={[s.pickerItem, !addBarberSelection && s.pickerItemSelected]}
-                onPress={() => { setAddBarberSelection(null); setShowAddBarberPicker(false); }}
-              >
-                <Text style={[s.pickerItemText, !addBarberSelection && s.pickerItemTextSelected]}>
-                  Select Barber
-                </Text>
-              </TouchableOpacity>
-              {data?.barbers?.filter(b => b.isActive).map((b) => (
-                <TouchableOpacity 
-                  key={b.id}
-                  style={[s.pickerItem, addBarberSelection === b.id && s.pickerItemSelected]}
-                  onPress={() => { setAddBarberSelection(b.id); setShowAddBarberPicker(false); }}
-                >
-                  <Text style={[s.pickerItemText, addBarberSelection === b.id && s.pickerItemTextSelected]}>
-                    {b.name} (Chair {b.chairNumber})
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={s.pickerCancel} onPress={() => setShowAddBarberPicker(false)}>
-              <Text style={s.pickerCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Confirmation Modal — animationType="none" so the modal (with its customer-name text)
-          disappears instantly when Done/Skip is tapped, instead of fading over the chair card. */}
-      <Modal visible={confirmModal.visible} transparent animationType="none">
-        <View style={s.overlay}>
-          <View style={s.modalBox}>
-            <Text style={s.modalTitle}>
-              {confirmModal.type === 'done' && 'Mark as Done?'}
-              {confirmModal.type === 'start' && 'Start Service?'}
-              {confirmModal.type === 'skip' && 'Skip Customer?'}
-            </Text>
-            <Text style={s.modalMsg}>
-              {confirmModal.type === 'done' && `Complete service for #${confirmModal.entry?.tokenNumber} (${confirmModal.entry?.name})?`}
-              {confirmModal.type === 'start' && `Start service for #${confirmModal.entry?.tokenNumber}? This clears the waiting timer.`}
-              {confirmModal.type === 'skip' && `Skip #${confirmModal.entry?.tokenNumber} (${confirmModal.entry?.name})? They must take a new token.`}
-            </Text>
-            <View style={s.modalBtns}>
-              <TouchableOpacity style={s.mCancel} onPress={() => setConfirmModal({ visible: false, type: 'done' })}>
-                <Text style={s.mCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  s.mConfirm,
-                  confirmModal.type === 'skip' && s.mConfirmDanger,
-                  !!confirmModal.entry && pendingActions.has(confirmModal.entry.id) && s.btnDisabled,
-                ]}
-                disabled={!!confirmModal.entry && pendingActions.has(confirmModal.entry.id)}
-                onPress={() => {
-                  const entry = confirmModal.entry;
-                  if (entry) {
-                    if (confirmModal.type === 'done') handleDone(entry.id, entry.tokenNumber);
-                    if (confirmModal.type === 'start') handleStart(entry.id, entry.tokenNumber);
-                    if (confirmModal.type === 'skip') handleSkip(entry.id, entry.tokenNumber);
-                  }
-                }}
-              >
-                <Text style={s.mConfirmText}>
-                  {confirmModal.type === 'done' && 'Done'}
-                  {confirmModal.type === 'start' && 'Start'}
-                  {confirmModal.type === 'skip' && 'Skip'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </KeyboardAwareScrollView>
+      {/* Confirm done / start / skip */}
+      <ConfirmSheet
+        visible={confirmModal.visible}
+        onClose={() => setConfirmModal({ visible: false, type: 'done' })}
+        title={
+          confirmModal.type === 'done'
+            ? 'Mark as done?'
+            : confirmModal.type === 'start'
+              ? 'Start service?'
+              : 'Skip customer?'
+        }
+        message={
+          confirmModal.type === 'done'
+            ? `Complete service for #${confirmModal.entry?.tokenNumber} (${confirmModal.entry?.name})?`
+            : confirmModal.type === 'start'
+              ? `Start service for #${confirmModal.entry?.tokenNumber}? This clears the waiting timer.`
+              : `Skip #${confirmModal.entry?.tokenNumber} (${confirmModal.entry?.name})? They must take a new token.`
+        }
+        confirmLabel={
+          confirmModal.type === 'done'
+            ? 'Done'
+            : confirmModal.type === 'start'
+              ? 'Start'
+              : 'Skip'
+        }
+        destructive={confirmModal.type === 'skip'}
+        loading={!!confirmModal.entry && pendingActions.has(confirmModal.entry.id)}
+        onConfirm={() => {
+          const entry = confirmModal.entry;
+          if (entry) {
+            if (confirmModal.type === 'done') handleDone(entry.id, entry.tokenNumber);
+            if (confirmModal.type === 'start') handleStart(entry.id, entry.tokenNumber);
+            if (confirmModal.type === 'skip') handleSkip(entry.id, entry.tokenNumber);
+          }
+        }}
+      />
+    </>
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
-  scrollPad: { padding: 16, paddingTop: 56 },
-  headerSection: { marginBottom: 24 },
-  brand: { fontFamily: fontFamilies.display, fontSize: typography.size.display, fontWeight: typography.weight.extrabold, color: colors.textPrimary, letterSpacing: typography.tracking.wider },
-  brandSub: { fontFamily: fontFamilies.display, fontSize: typography.size.base, color: colors.textSecondary, marginTop: 2, letterSpacing: typography.tracking.wide },
-  subtitle: { fontSize: 16, color: colors.textPrimary, marginTop: 12 },
+// ---------------------------------------------------------------------------
+// Picker row (matches index.tsx PickerRow)
+// ---------------------------------------------------------------------------
+function PickerRow({
+  label,
+  sub,
+  leading,
+  selected,
+  onPress,
+}: {
+  label: string;
+  sub?: string;
+  leading: React.ReactNode;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <PressableScale onPress={onPress} style={[styles.pickerRow, selected && styles.pickerRowSelected]}>
+      {leading}
+      <View style={{ flex: 1 }}>
+        <Text style={[type.body, selected && { color: palette.accentInk }]}>{label}</Text>
+        {sub ? <Text style={type.small}>{sub}</Text> : null}
+      </View>
+      {selected ? (
+        <Feather name="check-circle" size={22} color={palette.accent} />
+      ) : (
+        <View style={styles.radio} />
+      )}
+    </PressableScale>
+  );
+}
 
-  headerBar: { padding: 16, paddingTop: 56, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  shopTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
-  shopIdText: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  logoutBtn: { backgroundColor: colors.dangerBg, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
-  logoutText: { fontSize: 14, color: colors.danger, fontWeight: '600' },
+const styles = StyleSheet.create({
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: palette.canvas },
 
-  card: { backgroundColor: colors.white, borderRadius: 12, padding: 20, borderWidth: 1, borderColor: colors.border },
-  label: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 8, marginTop: 12 },
-  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 8, backgroundColor: colors.white },
-  error: { color: colors.danger, fontSize: 13, marginBottom: 8 },
-  btnPrimary: { backgroundColor: colors.brandPrimary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-  btnPrimaryText: { color: colors.white, fontSize: 16, fontWeight: '700' },
+  errorText: { color: palette.dangerRose, fontSize: 13, fontWeight: '600', marginTop: 8 },
 
-  expiredBox: { backgroundColor: colors.warningBg, padding: 16, borderRadius: 10, marginBottom: 16, borderWidth: 1, borderColor: colors.warningBorder },
-  expiredTitle: { fontSize: 16, fontWeight: '700', color: colors.warningText },
-  expiredMsg: { fontSize: 14, color: colors.warningText, marginTop: 4 },
+  expiredBox: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md, marginTop: space.lg },
 
-  toast: { backgroundColor: colors.success, padding: 14, margin: 16, borderRadius: 10, alignItems: 'center' },
-  toastText: { color: colors.white, fontSize: 14, fontWeight: '600' },
+  pushEnabled: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
 
-  pushSection: { padding: 16 },
-  btnNotify: { backgroundColor: colors.accent, padding: 14, borderRadius: 10, alignItems: 'center' },
-  btnNotifyText: { color: colors.white, fontSize: 14, fontWeight: '700' },
-  pushEnabled: { margin: 16, backgroundColor: colors.successBg, padding: 12, borderRadius: 10, alignItems: 'center' },
-  pushEnabledText: { color: colors.successText, fontSize: 13, fontWeight: '500' },
+  stats: { flexDirection: 'row', gap: space.sm, marginTop: space.xl },
 
-  logSection: { marginHorizontal: 16, marginTop: 4, marginBottom: 8, backgroundColor: colors.white, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 12 },
-  logHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  logTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
-  logActionRow: { flexDirection: 'row', gap: 8 },
-  logActionBtn: { backgroundColor: colors.brandPrimaryLight, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  logActionBtnText: { color: colors.brandPrimary, fontSize: 12, fontWeight: '700' },
-  logClearBtn: { backgroundColor: colors.dangerBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  logClearBtnText: { color: colors.dangerText, fontSize: 12, fontWeight: '700' },
-  logHint: { marginTop: 8, marginBottom: 10, color: colors.textSecondary, fontSize: 12 },
-  logEmpty: { color: colors.textSecondary, fontSize: 12 },
-  logItem: { backgroundColor: colors.bg, borderRadius: 8, padding: 8, marginBottom: 8 },
-  logMeta: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
-  logMessage: { fontSize: 13, color: colors.textPrimary, marginTop: 2 },
-  logDetails: { fontSize: 11, color: colors.textPrimary, marginTop: 4 },
+  chairsLoader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.md },
 
-  statsRow: { flexDirection: 'row', margin: 16, gap: 10 },
-  statBox: { flex: 1, backgroundColor: colors.white, padding: 16, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
-  statNum: { fontSize: 24, fontWeight: '800', color: colors.textPrimary },
-  statLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
+  chairEmpty: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: palette.lineStrong },
+  chairHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.md },
+  chairTag: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  chairTagText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.3, textTransform: 'uppercase' },
+  chairBarber: { fontSize: 13.5, fontWeight: '600', color: palette.inkMuted },
+  chairBody: { flexDirection: 'row', alignItems: 'center', gap: space.lg, marginBottom: space.lg },
+  chairToken: { fontSize: 34, fontWeight: '800', color: palette.accent, fontVariant: ['tabular-nums'], letterSpacing: -1 },
+  inlineNote: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
+  inlineNoteText: { fontSize: 13, fontWeight: '700' },
+  chairActions: { flexDirection: 'row', gap: space.md },
+  chairEmptyBody: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  chairEmptyText: { fontSize: 15.5, fontWeight: '600', color: palette.inkFaint },
+  chairProcessing: { marginTop: space.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
+  chairProcessingText: { fontSize: 13, color: palette.inkMuted, fontStyle: 'italic' },
 
-  section: { marginHorizontal: 16, marginTop: 16 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
+  waitRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  waitToken: {
+    minWidth: 52,
+    height: 40,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.sm,
+    backgroundColor: palette.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  waitTokenText: { color: palette.accentInk, fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
 
-  chairCard: { borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1 },
-  chairOccupied: { backgroundColor: colors.brandPrimaryLight, borderColor: colors.brandPrimaryBorder },
-  chairEmpty: { backgroundColor: colors.white, borderColor: colors.border },
-  chairsLoader: { backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1, borderRadius: 12, padding: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  chairsLoaderText: { fontSize: 14, color: colors.textSecondary },
-  chairHeader: { marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  chairLabel: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
-  chairBarberName: { fontSize: 13, color: colors.textSecondary, fontStyle: 'italic' },
-  chairBody: {},
-  chairCustomer: { marginBottom: 12 },
-  chairToken: { fontFamily: fontFamilies.display, fontSize: typography.size.display, fontWeight: typography.weight.extrabold, color: colors.brandPrimary, letterSpacing: typography.tracking.wide },
-  chairName: { fontSize: 16, color: colors.textPrimary, marginTop: 4 },
-  chairEmptyText: { fontSize: 15, color: colors.textMuted },
-  chairProcessing: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  chairProcessingText: { fontSize: 13, color: colors.textSecondary, fontStyle: 'italic' },
-  chairActions: { flexDirection: 'row', gap: 8 },
-  btnStart: { backgroundColor: colors.info, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnSkip: { backgroundColor: colors.warning, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnDone: { backgroundColor: colors.success, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnDisabled: { opacity: 0.5 },
-  btnActionText: { color: colors.white, fontSize: 13, fontWeight: '700' },
-  btnCallNext: { backgroundColor: colors.brandPrimary, padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 8 },
-  btnCallNextText: { color: colors.white, fontSize: 14, fontWeight: '700' },
+  addRow: { flexDirection: 'row', alignItems: 'flex-end', gap: space.md },
+  assignRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginTop: space.md,
+    paddingVertical: 12,
+    paddingHorizontal: space.md,
+    borderRadius: radius.md,
+    backgroundColor: palette.surfaceMuted,
+  },
+  assignText: { flex: 1, color: palette.inkMuted, fontSize: 14, fontWeight: '600' },
 
-  timerText: { fontSize: 12, color: colors.info, fontWeight: '600', marginTop: 4 },
-  timerExpired: { color: colors.danger },
-  serviceStarted: { fontSize: 12, color: colors.success, fontWeight: '600', marginTop: 4 },
-
-  waitingItem: { flexDirection: 'row', backgroundColor: colors.white, padding: 14, borderRadius: 10, marginBottom: 8, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
-  waitingToken: { fontSize: 18, fontWeight: '700', color: colors.brandPrimary, width: 50 },
-  waitingInfo: { flex: 1 },
-  waitingName: { fontSize: 15, color: colors.textPrimary },
-  waitingBarber: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  emptyText: { fontSize: 14, color: colors.textMuted, fontStyle: 'italic' },
-
-  // Barber filter styles
-  filterSection: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
-  filterLabel: { fontSize: 14, color: colors.textPrimary, marginRight: 8 },
-  filterDropdown: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surfaceAlt, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, flex: 1, justifyContent: 'space-between' },
-  filterDropdownText: { fontSize: 14, color: colors.textPrimary },
-  filterDropdownArrow: { fontSize: 10, color: colors.textSecondary, marginLeft: 8 },
-  clearFilterBtn: { marginLeft: 10, backgroundColor: colors.dangerBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  clearFilterText: { fontSize: 12, color: colors.danger, fontWeight: '600' },
-
-  // Barber picker modal styles
-  pickerBox: { backgroundColor: colors.white, borderRadius: 16, padding: 20, width: '85%', maxWidth: 360, maxHeight: '70%' },
-  pickerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 16, textAlign: 'center' },
-  pickerList: { maxHeight: 300 },
-  pickerItem: { padding: 14, borderRadius: 8, marginBottom: 8, backgroundColor: colors.bg },
-  pickerItemSelected: { backgroundColor: colors.brandPrimary },
-  pickerItemText: { fontSize: 15, color: colors.textPrimary },
-  pickerItemTextSelected: { color: colors.white, fontWeight: '600' },
-  pickerCancel: { padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.surfaceAlt, marginTop: 12 },
-  pickerCancelText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
-
-  addRow: { flexDirection: 'row', gap: 10 },
-  btnAdd: { backgroundColor: colors.success, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 8 },
-  btnAddText: { color: colors.white, fontSize: 14, fontWeight: '700' },
-
-  // Add customer barber selection styles
-  addBarberRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
-  addBarberLabel: { fontSize: 13, color: colors.textPrimary, marginRight: 8 },
-  addBarberDropdown: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.border, flex: 1, justifyContent: 'space-between' },
-  addBarberDropdownText: { fontSize: 14, color: colors.textPrimary },
-
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalBox: { backgroundColor: colors.white, borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 8, textAlign: 'center' },
-  modalMsg: { fontSize: 15, color: colors.textSecondary, marginBottom: 20, textAlign: 'center' },
-  modalBtns: { flexDirection: 'row', gap: 12 },
-  mCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.surfaceAlt },
-  mConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.success },
-  mConfirmDanger: { backgroundColor: colors.danger },
-  mCancelText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
-  mConfirmText: { color: colors.white, fontSize: 15, fontWeight: '600' },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingVertical: space.md,
+    paddingHorizontal: space.md,
+    borderRadius: radius.md,
+    marginBottom: space.xs,
+  },
+  pickerRowSelected: { backgroundColor: palette.accentSoft },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: palette.lineStrong },
 });

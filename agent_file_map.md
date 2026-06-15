@@ -25,7 +25,7 @@ This map gives short, practical summaries so agents can quickly understand where
 
 ## Frontend Routes (`app/`)
 
-- `app/_layout.tsx`: Global app shell with custom header/drawer navigation and notification permission/init hooks.
+- `app/_layout.tsx`: Global app shell — Expo Router `Tabs` rendered through the custom `FloatingTabBar` (Customer / Barber / Admin), wrapped in GestureHandlerRootView + SafeAreaProvider + KeyboardProvider, plus the FCM foreground-handler / permission init hooks.
 - `app/index.tsx`: Customer queue screen (shop selection, join queue, status polling, leave/rejoin, local persistence).
 - `app/dashboard.tsx`: Barber dashboard (shop login, queue operations, polling, push registration, filters).
 - `app/admin.tsx`: Admin panel (admin login, shop CRUD, barber management, stats, reset/remove token actions).
@@ -33,7 +33,28 @@ This map gives short, practical summaries so agents can quickly understand where
 
 ## Shared Component
 
-- `components/WebCustomerView.tsx`: Web-only customer queue UI using browser storage and 5s polling.
+- `components/WebCustomerView.tsx`: Web-only customer queue UI using browser storage and 5s polling (legacy/unused — not currently wired into any route).
+
+## Design System (`src/`)
+
+The "Workbench" warm-bronze line-art design system that all three screens are built on. Ported from the `demos/barber` reference re-skin.
+
+- `src/theme/tokens.ts`: Single source of design truth — `palette` (stark-white canvas, warm sepia hairlines, one bronze accent, earthy semantic tints), `elevation`, `space` (4pt scale), `radius`, `hit` targets, and the `type` scale (display/title/heading/body/label voice). Every screen + UI component composes from here; no hard-coded hex.
+- `src/components/FloatingTabBar.tsx`: Custom rounded, floating bottom tab bar (Customer / Barber / Admin) with a solid-bronze active role; rendered by `app/_layout.tsx`'s `Tabs`.
+- `src/components/ui/index.ts`: Barrel re-export for the UI kit below.
+- `src/components/ui/Button.tsx`: Pressable button with variants (primary/secondary/ghost/success/danger/tealSolid), sizes, leading/trailing Feather icons, and loading state.
+- `src/components/ui/Card.tsx`: White surface defined by a hairline bronze border with restrained warm elevation; supports tint/borderColor/level/padding.
+- `src/components/ui/Pill.tsx`: Soft, high-contrast status chip with tone (neutral/accent/teal/amber/rose/green) and optional dot.
+- `src/components/ui/Screen.tsx`: Screen scaffold (`Screen`, `ScreenHeader` with bronze eyebrow + rule, `Section` with bronze marker) handling safe-area top padding and floating-tab-bar clearance.
+- `src/components/ui/Field.tsx`: `TextField` (focus-aware inset input) and `Stepper` (−/＋ numeric control with OFF state) form primitives.
+- `src/components/ui/StatTile.tsx`: Compact white metric tile — big tabular numeral + tracked label.
+- `src/components/ui/Segmented.tsx`: Horizontal pill selector with accent-tinted active state.
+- `src/components/ui/Sheet.tsx`: `BottomSheet` (animated modal sheet) and `ConfirmSheet` (confirm/cancel, optional destructive) — replaces the old in-screen `Modal`s.
+- `src/components/ui/Toast.tsx`: `useToast` hook + floating confirmation `Toast` banner pinned below the status bar.
+- `src/components/ui/IconCircle.tsx`: `IconCircle` (rounded glyph tile) and `Avatar` (initials avatar for barbers).
+- `src/components/ui/EmptyState.tsx`: Calm placeholder for empty lists (icon + title + hint).
+- `src/components/ui/PressableScale.tsx`: Pressable wrapper adding a soft spring scale on touch.
+- `src/utils/time.ts`: `useNow()` ticker (re-renders for live countdowns) plus `minutesLeft`/`timeAgo` helpers.
 
 ## Shared Library (`lib/`)
 
@@ -41,7 +62,6 @@ This map gives short, practical summaries so agents can quickly understand where
 - `lib/fetchWithRetry.ts`: Fetch wrapper adding per-request timeout (AbortController) and exponential-backoff retries for idempotent GETs only; mutations get timeouts but no auto-retry to avoid duplicates.
 - `lib/mobileNotifications.ts`: FCM registration/unregistration, permission flow, and foreground/background handlers.
 - `lib/notificationDebug.ts`: AsyncStorage-based debug log store for notification troubleshooting.
-- `lib/theme.ts`: Centralised design tokens — `colors` (warm-cream/teal/burnt-orange palette), `fontFamilies` (SpaceMono display + system body), and `typography` scale; imported by all UI files instead of hard-coded hex/size literals.
 - `lib/webPush.ts`: Browser push subscription helper using service workers + VAPID flow.
 
 ## Backend (`backend/`)

@@ -116,10 +116,30 @@ Snapshot of the current project tree.
 |   |-- fetchWithRetry.ts
 |   |-- mobileNotifications.ts
 |   |-- notificationDebug.ts
-|   |-- theme.ts
 |   |-- webPush.ts
 |-- public/
 |   |-- sw.js
 |-- scripts/
 |   |-- reset-project.js
+|-- src/
+|   |-- components/
+|   |   |-- FloatingTabBar.tsx
+|   |   |-- ui/
+|   |   |   |-- Button.tsx
+|   |   |   |-- Card.tsx
+|   |   |   |-- EmptyState.tsx
+|   |   |   |-- Field.tsx
+|   |   |   |-- IconCircle.tsx
+|   |   |   |-- index.ts
+|   |   |   |-- Pill.tsx
+|   |   |   |-- PressableScale.tsx
+|   |   |   |-- Screen.tsx
+|   |   |   |-- Segmented.tsx
+|   |   |   |-- Sheet.tsx
+|   |   |   |-- StatTile.tsx
+|   |   |   |-- Toast.tsx
+|   |-- theme/
+|   |   |-- tokens.ts
+|   |-- utils/
+|   |   |-- time.ts
 ```

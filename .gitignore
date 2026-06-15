@@ -45,3 +45,8 @@ yarn-error.*
 
 app-example
 android/app/*.keystore
+
+# release signing secrets — never commit
+*.keystore
+*.jks
+*.b64

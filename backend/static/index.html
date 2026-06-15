@@ -10,38 +10,41 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
+        /* Quevix "Workbench" — warm bronze line-art on a stark-white canvas.
+           Redefining these tokens re-skins almost every class for free. */
         :root {
-            --primary: #6366f1;
-            --primary-dark: #4f46e5;
-            --success: #10b981;
-            --danger: #ef4444;
-            --gray-50: #f9fafb;
-            --gray-100: #f3f4f6;
-            --gray-200: #e5e7eb;
-            --gray-300: #d1d5db;
-            --gray-400: #9ca3af;
-            --gray-500: #6b7280;
-            --gray-600: #4b5563;
-            --gray-700: #374151;
-            --gray-800: #1f2937;
+            --primary: #8A6D3B;        /* bronze accent */
+            --primary-dark: #6F5730;   /* accent pressed */
+            --success: #4E7C6F;        /* pine — serving/live */
+            --danger: #B14A3A;         /* warm brick — leave/danger */
+            --gray-50: #F7F1E7;        /* warm cream inset */
+            --gray-100: #F0E7D6;       /* sunken */
+            --gray-200: #ECE3D4;       /* hairline */
+            --gray-300: #DCCFB8;       /* strong hairline */
+            --gray-400: #9C9484;       /* faint ink / placeholder */
+            --gray-500: #6E6456;       /* muted ink */
+            --gray-600: #6E6456;       /* muted ink */
+            --gray-700: #333333;       /* charcoal ink */
+            --gray-800: #333333;       /* charcoal ink */
         }
-        
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #FBF6EE;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 20px;
         }
-        
+
         .container { width: 100%; max-width: 420px; }
-        
+
         .card {
             background: white;
             border-radius: 24px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--gray-200);
+            box-shadow: 0 18px 40px -16px rgba(107, 79, 34, 0.22);
             overflow: hidden;
         }
         
@@ -69,8 +72,8 @@
             font-size: 14px;
         }
         
-        .shop-status.open { background: #ecfdf5; color: #065f46; }
-        .shop-status.closed { background: #fef2f2; color: #991b1b; }
+        .shop-status.open { background: #E6F0EC; color: #3E5F54; }
+        .shop-status.closed { background: #F8E8E2; color: #8A3528; }
         
         .status-dot {
             width: 8px; height: 8px;
@@ -92,6 +95,7 @@
         
         .info-card {
             background: var(--gray-50);
+            border: 1px solid var(--gray-200);
             border-radius: 12px;
             padding: 14px;
             text-align: center;
@@ -106,7 +110,7 @@
         }
         
         .info-value { font-size: 22px; font-weight: 700; color: var(--gray-800); }
-        .info-value.serving { color: var(--success); }
+        .info-value.serving { color: var(--success); font-variant-numeric: tabular-nums; }
         
         .form-group { margin-bottom: 16px; }
         .form-label { display: block; font-size: 14px; font-weight: 500; color: var(--gray-700); margin-bottom: 6px; }
@@ -142,11 +146,11 @@
             color: white;
         }
         
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3); }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 16px rgba(138, 109, 59, 0.3); }
         .btn-primary:disabled { background: var(--gray-300); cursor: not-allowed; transform: none; box-shadow: none; }
 
         .btn-danger { background: var(--danger); color: white; }
-        .btn-danger:hover { background: #dc2626; }
+        .btn-danger:hover { background: #9A3E30; }
 
         .btn-spinner {
             display: inline-block;
@@ -170,22 +174,22 @@
         }
         
         .token-label { font-size: 13px; opacity: 0.9; margin-bottom: 6px; }
-        .token-number { font-size: 56px; font-weight: 700; line-height: 1; }
+        .token-number { font-size: 56px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
         .token-name { font-size: 16px; margin-top: 6px; opacity: 0.9; }
         
         .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
         
         .status-card { padding: 14px; border-radius: 10px; text-align: center; }
-        .status-card.ahead { background: #fef3c7; }
-        .status-card.serving { background: #d1fae5; }
-        
-        .status-card-value { font-size: 26px; font-weight: 700; margin-bottom: 2px; }
-        .status-card.ahead .status-card-value { color: #92400e; }
-        .status-card.serving .status-card-value { color: #065f46; }
+        .status-card.ahead { background: #FAF0DF; }
+        .status-card.serving { background: #E6F0EC; }
+
+        .status-card-value { font-size: 26px; font-weight: 700; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+        .status-card.ahead .status-card-value { color: #8A551F; }
+        .status-card.serving .status-card-value { color: #3E5F54; }
         .status-card-label { font-size: 11px; color: var(--gray-600); }
         
         .your-turn {
-            background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
+            background: linear-gradient(135deg, var(--success) 0%, #3E5F54 100%);
             color: white;
             padding: 20px;
             border-radius: 12px;
@@ -198,6 +202,7 @@
         
         .serving-now {
             background: var(--gray-50);
+            border: 1px solid var(--gray-200);
             border-radius: 10px;
             padding: 14px;
             margin-bottom: 20px;
@@ -216,10 +221,10 @@
         .spinner { width: 36px; height: 36px; border: 3px solid var(--gray-200); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 14px; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        .error { background: #fef2f2; color: #991b1b; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
+        .error { background: #F8E8E2; color: #8A3528; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
         .hidden { display: none !important; }
         
-        .completed-status { text-align: center; padding: 24px; background: var(--gray-100); border-radius: 12px; margin-bottom: 20px; }
+        .completed-status { text-align: center; padding: 24px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 12px; margin-bottom: 20px; }
         .completed-icon { font-size: 44px; margin-bottom: 10px; }
         .completed-text { font-size: 17px; font-weight: 600; color: var(--gray-700); }
         .completed-sub { font-size: 13px; color: var(--gray-500); margin-top: 4px; }

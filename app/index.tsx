@@ -1,21 +1,26 @@
+import { Feather } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
-import {
-  Text,
-  View,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  Modal,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { registerMobilePushDevice } from '../lib/mobileNotifications';
 import { getBackendBaseUrl } from '../lib/backendUrl';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
-import { colors, fontFamilies, typography } from '../lib/theme';
+import {
+  Avatar,
+  BottomSheet,
+  Button,
+  Card,
+  EmptyState,
+  IconCircle,
+  Pill,
+  PressableScale,
+  Screen,
+  ScreenHeader,
+  Section,
+  TextField,
+} from '../src/components/ui';
+import { palette, radius, space, type } from '../src/theme/tokens';
+import { useNow } from '../src/utils/time';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const MY_ENTRIES_KEY = '@my_queue_entries';
@@ -62,9 +67,9 @@ interface MyEntry {
 }
 
 export default function Index() {
-  // Bottom safe-area inset so the last item in each ScrollView clears the
-  // Android 3-button nav / iOS home indicator.
-  const insets = useSafeAreaInsets();
+  // Live ticker so the serving countdown stays current between 15s polls.
+  const now = useNow(1000);
+
   // Shop selection state
   const [shops, setShops] = useState<Shop[]>([]);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
@@ -84,6 +89,7 @@ export default function Index() {
   const [errorMessage, setErrorMessage] = useState('');
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [leaving, setLeaving] = useState(false);
+
   useEffect(() => {
     fetchShops();
     loadMyEntries();
@@ -190,7 +196,7 @@ export default function Index() {
     }
     setSelectedShop(shop);
     setErrorMessage('');
-    
+
     // Fetch barbers for this shop
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/shop/${shop.shopId}/barbers`);
@@ -214,7 +220,7 @@ export default function Index() {
   const handleJoinQueue = async () => {
     if (!selectedShop) return;
     setErrorMessage('');
-    
+
     if (!name.trim()) {
       setErrorMessage('Please enter your name');
       return;
@@ -224,12 +230,12 @@ export default function Index() {
     try {
       const historyStr = await AsyncStorage.getItem(JOIN_HISTORY_KEY);
       let history = historyStr ? JSON.parse(historyStr) : [];
-      const now = new Date();
-      const cutoff = new Date(now.getTime() - COOLDOWN_MIN * 60 * 1000);
+      const nowDate = new Date();
+      const cutoff = new Date(nowDate.getTime() - COOLDOWN_MIN * 60 * 1000);
       history = history.filter((ts: string) => new Date(ts) > cutoff);
       if (history.length >= MAX_JOINS) {
         const oldest = new Date(history[0]);
-        const remaining = Math.ceil(COOLDOWN_MIN - (now.getTime() - oldest.getTime()) / 60000);
+        const remaining = Math.ceil(COOLDOWN_MIN - (nowDate.getTime() - oldest.getTime()) / 60000);
         setErrorMessage(`Joined ${MAX_JOINS} times already. Wait ${remaining} min.`);
         return;
       }
@@ -325,12 +331,12 @@ export default function Index() {
       if (res.ok) {
         const data = await res.json();
         setQueueStatus({ ...data, shopId: queueStatus.shopId });
-        
+
         if (data.status === 'completed' || data.status === 'left' || data.status === 'skipped' || data.status === 'expired') {
           // Remove from my entries
           const updated = myEntries.filter(e => e.id !== data.id);
           await saveMyEntries(updated);
-          
+
           if (updated.length > 0) {
             await viewEntry(updated[0]);
           } else {
@@ -373,473 +379,513 @@ export default function Index() {
     setName('');
   };
 
-  // STEP 1: Shop Selection Screen
-  if (!selectedShop && !joined) {
+  // =========================================================================
+  // STEP 3: Live ticket (after joined)
+  // =========================================================================
+  if (joined && queueStatus) {
+    const isServing = queueStatus.status === 'serving';
+    const isWaiting = !isServing;
+
+    // Remaining arrival timer for serving customers (expiresAt is UTC; tick via `now`).
+    let timerMinutes = 0;
+    let timerLabel: string | null = null;
+    if (isServing && queueStatus.expiresAt && !queueStatus.serviceStartedAt) {
+      const expiresAtStr = queueStatus.expiresAt.endsWith('Z') ? queueStatus.expiresAt : queueStatus.expiresAt + 'Z';
+      const diffMs = new Date(expiresAtStr).getTime() - now;
+      timerMinutes = Math.max(0, Math.ceil(diffMs / 60000));
+      timerLabel = timerMinutes > 0 ? `${timerMinutes} min to arrive` : 'Arrival time elapsed';
+    }
+
+    const otherEntries = myEntries.filter((e) => e.id !== queueStatus.id);
+
     return (
-      <ScrollView style={st.container} contentContainerStyle={[st.scrollPad, { paddingBottom: 16 + insets.bottom }]}>
-        <View style={st.header}>
-          <Text style={st.brand}>Quevix</Text>
-          <Text style={st.brandSub}>Smart Queue Platform</Text>
+      <Screen>
+        <View style={styles.ticketHead}>
+          <Text style={[type.label, { color: palette.accentInk }]}>{selectedShop?.name || 'Queue'}</Text>
+          <Text style={[type.title, { marginTop: 4 }]}>Your ticket</Text>
         </View>
 
-        <Text style={st.selectTitle}>Select Your Shop</Text>
-        
-        {errorMessage ? (
-          <View style={st.errorBox}>
-            <Text style={st.errorText}>{errorMessage}</Text>
+        {/* The ticket */}
+        <Card level="lg" padding={0} style={[styles.ticket, isServing && styles.ticketServing]}>
+          <View style={styles.ticketTop}>
+            <Pill label={isServing ? "It's your turn" : 'Waiting'} tone={isServing ? 'teal' : 'amber'} dot />
+            <Text style={styles.ticketLabel}>Token</Text>
+            <Text style={[type.display, styles.ticketNumber, isServing && { color: palette.liveTeal }]}>#{queueStatus.tokenNumber}</Text>
+            <Text style={styles.ticketName}>{queueStatus.name}</Text>
           </View>
-        ) : null}
 
-        {shops.length > 0 ? (
-          <View style={st.shopsList}>
-            {shops.map((shop) => (
-              <TouchableOpacity
-                key={shop.shopId}
-                style={[st.shopCard, !shop.isOpen && st.shopCardClosed]}
-                onPress={() => handleSelectShop(shop)}
-                disabled={!shop.isOpen}
-              >
-                <View style={st.shopCardContent}>
-                  <Text style={st.shopName}>{shop.name}</Text>
-                  <View style={[st.statusBadge, shop.isOpen ? st.statusOpen : st.statusClosed]}>
-                    <Text style={st.statusText}>{shop.isOpen ? 'OPEN' : 'CLOSED'}</Text>
+          {/* Perforation */}
+          <View style={styles.perforation}>
+            <View style={[styles.notch, styles.notchLeft]} />
+            <View style={styles.dashed} />
+            <View style={[styles.notch, styles.notchRight]} />
+          </View>
+
+          <View style={styles.ticketBottom}>
+            {isWaiting ? (
+              <View style={styles.ticketStat}>
+                <View style={styles.aheadBlock}>
+                  <Text style={styles.aheadNumber}>{queueStatus.peopleAhead}</Text>
+                  <Text style={styles.aheadLabel}>{queueStatus.peopleAhead === 1 ? 'person ahead' : 'people ahead'}</Text>
+                </View>
+                <View style={styles.divider} />
+                <View style={styles.servingBlock}>
+                  <Text style={[type.label, { marginBottom: 6 }]}>Now serving</Text>
+                  <Text style={styles.servingText}>
+                    {queueStatus.servingNow?.length ? queueStatus.servingNow.map((n) => `#${n}`).join('  ') : 'No one yet'}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.servingNow}>
+                <View style={styles.servingNowRow}>
+                  <IconCircle name="navigation" size={40} bg={palette.liveTealSoft} color={palette.liveTeal} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[type.heading, { color: palette.ink }]}>Head to the shop now</Text>
+                    <Text style={type.small}>Your chair is ready.</Text>
                   </View>
                 </View>
-                {shop.isOpen ? (
-                  <Text style={st.shopHours}>Hours: {shop.openTime} - {shop.closeTime}</Text>
-                ) : (
-                  <Text style={st.shopClosedMsg}>Currently not accepting customers</Text>
-                )}
-              </TouchableOpacity>
+                {queueStatus.serviceStartedAt ? (
+                  <View style={[styles.timerChip, { backgroundColor: palette.liveTealSoft }]}>
+                    <Feather name="check" size={15} color={palette.liveTeal} />
+                    <Text style={[styles.timerText, { color: palette.liveTeal }]}>Service in progress</Text>
+                  </View>
+                ) : timerLabel !== null ? (
+                  <View style={[styles.timerChip, timerMinutes === 0 ? { backgroundColor: palette.dangerRoseSoft } : { backgroundColor: palette.warnAmberSoft }]}>
+                    <Feather name="clock" size={15} color={timerMinutes === 0 ? palette.dangerRose : palette.warnAmber} />
+                    <Text style={[styles.timerText, { color: timerMinutes === 0 ? palette.dangerRose : palette.warnAmber }]}>
+                      {timerLabel}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            )}
+          </View>
+        </Card>
+
+        <View style={{ gap: space.md, marginTop: space['2xl'] }}>
+          {myEntries.length < MAX_JOINS && (
+            <Button label="Join another shop" variant="secondary" icon="plus" fullWidth onPress={handleNewEntry} />
+          )}
+          <Button label="Leave queue" variant="danger" icon="log-out" fullWidth onPress={() => setShowLeaveModal(true)} />
+        </View>
+
+        {otherEntries.length > 0 && (
+          <Section title="Your other tickets">
+            <View style={{ gap: space.md }}>
+              {otherEntries.map((entry) => (
+                <PressableScale key={entry.id} onPress={() => viewEntry(entry)}>
+                  <Card level="sm" padding="lg" style={styles.ticketRow}>
+                    <View style={styles.tokenChip}>
+                      <Text style={styles.tokenChipText}>#{entry.tokenNumber}</Text>
+                    </View>
+                    <Text style={[type.body, { flex: 1 }]}>{entry.shopName}</Text>
+                    <Feather name="chevron-right" size={20} color={palette.inkFaint} />
+                  </Card>
+                </PressableScale>
+              ))}
+            </View>
+          </Section>
+        )}
+
+        <BottomSheet visible={showLeaveModal} onClose={() => setShowLeaveModal(false)} title="Leave the queue?">
+          <Text style={[type.body, { color: palette.inkMuted, marginBottom: space['2xl'] }]}>
+            You'll lose your spot in line and need a new token to rejoin.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: space.md }}>
+            <View style={{ flex: 1 }}>
+              <Button label="Stay" variant="secondary" fullWidth onPress={() => setShowLeaveModal(false)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button label="Leave" variant="danger" fullWidth loading={leaving} onPress={confirmLeaveQueue} />
+            </View>
+          </View>
+        </BottomSheet>
+      </Screen>
+    );
+  }
+
+  // =========================================================================
+  // STEP 2: Join form (after shop selected)
+  // =========================================================================
+  if (selectedShop) {
+    const activeBarbers = barbers.filter((b) => b.isActive);
+    const chosen = activeBarbers.find((b) => b.id === selectedBarber);
+    return (
+      <>
+        <Screen>
+          <PressableScale onPress={handleBackToShops} style={styles.backChip}>
+            <Feather name="chevron-left" size={18} color={palette.accentInk} />
+            <Text style={styles.backText}>All shops</Text>
+          </PressableScale>
+
+          <Card tint={palette.accentSoft} level="flat" style={styles.shopBanner}>
+            <View style={{ flex: 1 }}>
+              <Text style={[type.label, { color: palette.accentInk }]}>Selected shop</Text>
+              <Text style={[type.title, { marginTop: 6 }]}>{selectedShop.name}</Text>
+              {!!(selectedShop.openTime || selectedShop.closeTime) && (
+                <View style={styles.metaRow}>
+                  <Feather name="clock" size={14} color={palette.inkMuted} />
+                  <Text style={styles.metaText}>
+                    {selectedShop.openTime} – {selectedShop.closeTime}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Pill label="Open" tone="teal" dot />
+          </Card>
+
+          <Section title="Join the queue" style={{ marginTop: space['2xl'] }}>
+            <Card>
+              <TextField
+                label="Your name"
+                value={name}
+                onChangeText={(t) => { setName(t); setErrorMessage(''); }}
+                placeholder="e.g. Alex"
+                maxLength={50}
+                autoCapitalize="words"
+              />
+
+              {activeBarbers.length > 0 && (
+                <View style={{ marginTop: space.xl }}>
+                  <Text style={[type.label, { marginBottom: 8 }]}>Prefer a barber? · Optional</Text>
+                  <PressableScale onPress={() => setShowBarberPicker(true)} style={styles.select}>
+                    {chosen ? (
+                      <>
+                        <Avatar name={chosen.name} size={32} />
+                        <Text style={styles.selectText}>{chosen.name} · Chair {chosen.chairNumber}</Text>
+                      </>
+                    ) : (
+                      <>
+                        <IconCircle name="users" size={32} />
+                        <Text style={styles.selectText}>Any available barber</Text>
+                      </>
+                    )}
+                    <Feather name="chevron-down" size={18} color={palette.inkFaint} />
+                  </PressableScale>
+                </View>
+              )}
+
+              {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+
+              <Button
+                label="Join queue"
+                icon="arrow-right"
+                size="lg"
+                fullWidth
+                loading={loading}
+                onPress={handleJoinQueue}
+                style={{ marginTop: space['2xl'] }}
+              />
+              <View style={styles.reassure}>
+                <Feather name="shield" size={13} color={palette.inkFaint} />
+                <Text style={styles.reassureText}>We hold your place — track your turn from your phone.</Text>
+              </View>
+            </Card>
+          </Section>
+        </Screen>
+
+        <BottomSheet
+          visible={showBarberPicker}
+          onClose={() => setShowBarberPicker(false)}
+          title="Choose a barber"
+          subtitle="Pick a preferred barber or let any available barber take you."
+          scroll
+        >
+          <PickerRow
+            label="Any available barber"
+            leading={<IconCircle name="users" size={40} />}
+            selected={!selectedBarber}
+            onPress={() => { setSelectedBarber(null); setShowBarberPicker(false); }}
+          />
+          {activeBarbers.map((b) => (
+            <PickerRow
+              key={b.id}
+              label={b.name}
+              sub={`Chair ${b.chairNumber}`}
+              leading={<Avatar name={b.name} size={40} />}
+              selected={selectedBarber === b.id}
+              onPress={() => { setSelectedBarber(b.id); setShowBarberPicker(false); }}
+            />
+          ))}
+        </BottomSheet>
+      </>
+    );
+  }
+
+  // =========================================================================
+  // STEP 1: Shop select
+  // =========================================================================
+  return (
+    <Screen>
+      <ScreenHeader
+        eyebrow="Quevix · Front desk"
+        title="Find your chair"
+        subtitle="Join a barbershop queue and track your turn in real time."
+      />
+
+      {/* Line-art hero band — the "friendly utility" welcome */}
+      <Card tint={palette.accentSoft} borderColor={palette.accentSoftLine} level="flat" style={styles.hero}>
+        <View style={styles.heroGlyph}>
+          <Feather name="scissors" size={26} color={palette.accent} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[type.heading, { color: palette.accentInk }]}>Walk in, we'll hold your chair</Text>
+          <Text style={[type.small, { marginTop: 4, color: palette.inkMuted }]}>
+            No more waiting at the door — grab a token and wander.
+          </Text>
+        </View>
+      </Card>
+      <View style={styles.heroDash} />
+
+      {errorMessage ? (
+        <Card tint={palette.dangerRoseSoft} borderColor={palette.dangerRoseLine} level="flat" padding="lg" style={{ marginTop: space.lg, flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+          <Feather name="alert-circle" size={18} color={palette.dangerRose} />
+          <Text style={[type.small, { color: palette.dangerRose, flex: 1 }]}>{errorMessage}</Text>
+        </Card>
+      ) : null}
+
+      {myEntries.length > 0 && (
+        <Section title="Your tickets">
+          <View style={{ gap: space.md }}>
+            {myEntries.map((entry) => (
+              <PressableScale key={entry.id} onPress={() => viewEntry(entry)}>
+                <Card level="sm" padding="lg" style={styles.ticketRow}>
+                  <View style={styles.tokenChip}>
+                    <Text style={styles.tokenChipText}>#{entry.tokenNumber}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={type.body}>{entry.name}</Text>
+                    <Text style={type.small}>{entry.shopName}</Text>
+                  </View>
+                  <Feather name="chevron-right" size={20} color={palette.inkFaint} />
+                </Card>
+              </PressableScale>
+            ))}
+          </View>
+        </Section>
+      )}
+
+      <Section title="Choose a shop">
+        {shops.length > 0 ? (
+          <View style={{ gap: space.md }}>
+            {shops.map((shop) => (
+              <PressableScale key={shop.shopId} onPress={() => handleSelectShop(shop)} disabled={!shop.isOpen}>
+                <Card level="sm" style={[styles.shopCard, shop.isOpen && styles.shopCardOpen, !shop.isOpen && { opacity: 0.75 }]}>
+                  <View style={styles.shopTop}>
+                    <IconCircle
+                      name="scissors"
+                      size={48}
+                      bg={shop.isOpen ? palette.accentSoft : palette.surfaceMuted}
+                      color={shop.isOpen ? palette.accent : palette.inkFaint}
+                    />
+                    <View style={styles.shopInfo}>
+                      <Text style={type.heading}>{shop.name}</Text>
+                      <View style={styles.metaRow}>
+                        <Feather name="clock" size={13} color={palette.inkFaint} />
+                        <Text style={styles.metaText}>{shop.openTime} – {shop.closeTime}</Text>
+                      </View>
+                    </View>
+                    <Pill label={shop.isOpen ? 'Open' : 'Closed'} tone={shop.isOpen ? 'teal' : 'neutral'} dot={shop.isOpen} />
+                  </View>
+                  <View style={styles.shopFoot}>
+                    {shop.isOpen ? (
+                      <>
+                        <Feather name="arrow-right-circle" size={14} color={palette.inkMuted} />
+                        <Text style={styles.shopFootText}>Tap to join the queue</Text>
+                        <Feather name="chevron-right" size={18} color={palette.accent} style={{ marginLeft: 'auto' }} />
+                      </>
+                    ) : (
+                      <>
+                        <Feather name="moon" size={14} color={palette.inkFaint} />
+                        <Text style={[styles.shopFootText, { color: palette.inkFaint }]}>Not accepting customers right now</Text>
+                      </>
+                    )}
+                  </View>
+                </Card>
+              </PressableScale>
             ))}
           </View>
         ) : loadingShops ? (
-          <View style={st.inlineLoader}>
-            <ActivityIndicator size="small" color={colors.brandPrimary} />
-            <Text style={st.loadingText}>Loading shops...</Text>
-          </View>
+          <Card level="sm" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.md }}>
+            <ActivityIndicator color={palette.accent} />
+            <Text style={type.bodyMuted}>Loading shops…</Text>
+          </Card>
         ) : (
-          <View style={st.emptyBox}>
-            <Text style={st.emptyText}>No shops available</Text>
-          </View>
+          <EmptyState icon="home" title="No shops available" hint="Check back soon — shops appear here when they open." />
         )}
-
-        {/* Show active entries */}
-        {myEntries.length > 0 && (
-          <View style={st.activeSection}>
-            <Text style={st.activeSectionTitle}>Your Active Tokens</Text>
-            {myEntries.map((entry) => (
-              <TouchableOpacity
-                key={entry.id}
-                style={st.activeEntry}
-                onPress={() => viewEntry(entry)}
-              >
-                <Text style={st.activeToken}>#{entry.tokenNumber}</Text>
-                <View>
-                  <Text style={st.activeName}>{entry.name}</Text>
-                  <Text style={st.activeShop}>{entry.shopName}</Text>
-                </View>
-                <Text style={st.viewBtn}>View →</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Notification logs now in console */}
-      </ScrollView>
-    );
-  }
-
-  // STEP 2: Join Queue Form (after shop selected) — KeyboardAwareScrollView ensures the
-  // name input stays visible when the keyboard slides up.
-  if (selectedShop && !joined) {
-    return (
-      <KeyboardAwareScrollView
-        style={st.container}
-        contentContainerStyle={[st.scrollPad, { paddingBottom: 16 + insets.bottom }]}
-        bottomOffset={24}
-      >
-        <TouchableOpacity style={st.backBtn} onPress={handleBackToShops}>
-          <Text style={st.backBtnText}>← Back to Shops</Text>
-        </TouchableOpacity>
-
-        <View style={st.selectedShopCard}>
-          <Text style={st.selectedShopName}>{selectedShop.name}</Text>
-          <Text style={st.selectedShopHours}>Hours: {selectedShop.openTime} - {selectedShop.closeTime}</Text>
-        </View>
-
-        <View style={st.formCard}>
-          <Text style={st.formTitle}>Join Queue</Text>
-          <Text style={st.formLabel}>Your Name</Text>
-          <TextInput
-            style={st.input}
-            value={name}
-            onChangeText={(t) => { setName(t); setErrorMessage(''); }}
-            placeholder="Enter your name"
-            placeholderTextColor={colors.textPlaceholder}
-            maxLength={50}
-          />
-          
-          {/* Optional Barber Selection */}
-          {barbers.length > 0 && (
-            <View style={st.barberSection}>
-              <Text style={st.formLabel}>Prefer a specific barber? (Optional)</Text>
-              <TouchableOpacity 
-                style={st.barberDropdown}
-                onPress={() => setShowBarberPicker(true)}
-              >
-                <Text style={st.barberDropdownText}>
-                  {selectedBarber 
-                    ? barbers.find(b => b.id === selectedBarber)?.name || 'Select Barber'
-                    : 'Any Available Barber'}
-                </Text>
-                <Text style={st.barberDropdownArrow}>▼</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          
-          {errorMessage ? <Text style={st.formError}>{errorMessage}</Text> : null}
-          <TouchableOpacity
-            style={[st.joinBtn, loading && st.joinBtnDisabled]}
-            onPress={handleJoinQueue}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color={colors.white} />
-            ) : (
-              <Text style={st.joinBtnText}>JOIN QUEUE</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Show other active entries */}
-        {myEntries.length > 0 && (
-          <View style={st.activeSection}>
-            <Text style={st.activeSectionTitle}>Your Active Tokens</Text>
-            {myEntries.map((entry) => (
-              <TouchableOpacity
-                key={entry.id}
-                style={st.activeEntry}
-                onPress={() => viewEntry(entry)}
-              >
-                <Text style={st.activeToken}>#{entry.tokenNumber}</Text>
-                <View>
-                  <Text style={st.activeName}>{entry.name}</Text>
-                  <Text style={st.activeShop}>{entry.shopName}</Text>
-                </View>
-                <Text style={st.viewBtn}>View →</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Notification logs now in console */}
-
-        {/* Barber Picker Modal */}
-        <Modal visible={showBarberPicker} transparent animationType="fade">
-          <View style={st.overlay}>
-            <View style={st.pickerBox}>
-              <Text style={st.pickerTitle}>Select Barber</Text>
-              <ScrollView style={st.pickerList}>
-                <TouchableOpacity 
-                  style={[st.pickerItem, !selectedBarber && st.pickerItemSelected]}
-                  onPress={() => { setSelectedBarber(null); setShowBarberPicker(false); }}
-                >
-                  <Text style={[st.pickerItemText, !selectedBarber && st.pickerItemTextSelected]}>
-                    Any Available Barber
-                  </Text>
-                </TouchableOpacity>
-                {barbers.filter(b => b.isActive).map((b) => (
-                  <TouchableOpacity 
-                    key={b.id}
-                    style={[st.pickerItem, selectedBarber === b.id && st.pickerItemSelected]}
-                    onPress={() => { setSelectedBarber(b.id); setShowBarberPicker(false); }}
-                  >
-                    <Text style={[st.pickerItemText, selectedBarber === b.id && st.pickerItemTextSelected]}>
-                      {b.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-              <TouchableOpacity style={st.pickerCancel} onPress={() => setShowBarberPicker(false)}>
-                <Text style={st.pickerCancelText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-      </KeyboardAwareScrollView>
-    );
-  }
-
-  // STEP 3: Queue Status (after joined)
-  if (joined && queueStatus) {
-    const isServing = queueStatus.status === 'serving';
-    const servingText = queueStatus.servingNow?.length > 0 
-      ? `Now Serving: #${queueStatus.servingNow.join(', #')}`
-      : 'No one being served';
-
-    // Calculate remaining timer for serving customers (expiresAt is UTC)
-    let timerDisplay = null;
-    let timerMinutes = 0;
-    if (isServing && queueStatus.expiresAt && !queueStatus.serviceStartedAt) {
-      // Add 'Z' to make it parse as UTC
-      const expiresAtStr = queueStatus.expiresAt.endsWith('Z') ? queueStatus.expiresAt : queueStatus.expiresAt + 'Z';
-      const expiresAt = new Date(expiresAtStr);
-      const now = new Date();
-      const diffMs = expiresAt.getTime() - now.getTime();
-      timerMinutes = Math.max(0, Math.ceil(diffMs / 60000));
-      if (timerMinutes > 0) {
-        timerDisplay = `${timerMinutes} min to arrive`;
-      } else {
-        timerDisplay = 'Time expired!';
-      }
-    }
-
-    return (
-      <ScrollView style={st.container} contentContainerStyle={{ paddingBottom: insets.bottom }}>
-        {/* Shop Name Header */}
-        <View style={st.statusHeader}>
-          <Text style={st.statusShopName}>{selectedShop?.name || 'Queue'}</Text>
-        </View>
-
-        {/* Token Card */}
-        <View style={[st.tokenCard, isServing && st.tokenCardServing]}>
-          <Text style={st.tokenLabel}>Your Token</Text>
-          <Text style={st.tokenNumber}>#{queueStatus.tokenNumber}</Text>
-          <Text style={st.tokenName}>{queueStatus.name}</Text>
-          
-          <View style={[st.statusIndicator, isServing ? st.statusServing : st.statusWaiting]}>
-            <Text style={[st.statusIndicatorText, isServing && st.statusIndicatorTextServing]}>
-              {isServing ? "IT'S YOUR TURN!" : 'WAITING'}
-            </Text>
-          </View>
-
-          {isServing ? (
-            <View style={st.servingInfo}>
-              <Text style={st.goNowText}>Please proceed to the shop now!</Text>
-              
-              {/* Timer Display */}
-              {timerDisplay && (
-                <View style={[st.timerBox, timerMinutes === 0 && st.timerBoxExpired]}>
-                  <Text style={st.timerIcon}>⏱</Text>
-                  <Text style={[st.timerText, timerMinutes === 0 && st.timerTextExpired]}>
-                    {timerDisplay}
-                  </Text>
-                </View>
-              )}
-              
-              {queueStatus.serviceStartedAt && (
-                <View style={st.serviceStartedBox}>
-                  <Text style={st.serviceStartedText}>✓ Service in progress</Text>
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={st.waitInfo}>
-              <Text style={st.waitText}>{queueStatus.peopleAhead} people ahead of you</Text>
-              <Text style={st.servingText}>{servingText}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Actions */}
-        <View style={st.actions}>
-          <TouchableOpacity style={st.leaveBtn} onPress={() => setShowLeaveModal(true)}>
-            <Text style={st.leaveBtnText}>Leave Queue</Text>
-          </TouchableOpacity>
-
-          {myEntries.length < MAX_JOINS && (
-            <TouchableOpacity style={st.newEntryBtn} onPress={handleNewEntry}>
-              <Text style={st.newEntryBtnText}>Join Another Shop</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Other Active Entries */}
-        {myEntries.length > 1 && (
-          <View style={st.otherEntries}>
-            <Text style={st.otherEntriesTitle}>Your Other Tokens</Text>
-            {myEntries.filter(e => e.id !== queueStatus.id).map((entry) => (
-              <TouchableOpacity
-                key={entry.id}
-                style={st.otherEntry}
-                onPress={() => viewEntry(entry)}
-              >
-                <Text style={st.otherToken}>#{entry.tokenNumber}</Text>
-                <Text style={st.otherShop}>{entry.shopName}</Text>
-                <Text style={st.viewBtn}>View →</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Notification logs now in console */}
-
-        {/* Leave Modal */}
-        <Modal visible={showLeaveModal} transparent animationType="fade">
-          <View style={st.overlay}>
-            <View style={st.modalBox}>
-              <Text style={st.modalTitle}>Leave Queue?</Text>
-              <Text style={st.modalMsg}>
-                Are you sure you want to leave? You'll lose your spot in line.
-              </Text>
-              <View style={st.modalBtns}>
-                <TouchableOpacity style={st.modalCancel} onPress={() => setShowLeaveModal(false)}>
-                  <Text style={st.modalCancelText}>Stay</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[st.modalConfirm, leaving && st.joinBtnDisabled]}
-                  disabled={leaving}
-                  onPress={confirmLeaveQueue}
-                >
-                  {leaving ? <ActivityIndicator color={colors.white} /> : <Text style={st.modalConfirmText}>Leave</Text>}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </ScrollView>
-    );
-  }
-
-  return null;
+      </Section>
+    </Screen>
+  );
 }
 
-const st = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
-  scrollPad: { padding: 16, paddingTop: 56 },
-  loadingText: { marginTop: 12, fontSize: 14, color: colors.textSecondary },
+function PickerRow({
+  label,
+  sub,
+  leading,
+  selected,
+  onPress,
+}: {
+  label: string;
+  sub?: string;
+  leading: React.ReactNode;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <PressableScale onPress={onPress} style={[styles.pickerRow, selected && styles.pickerRowSelected]}>
+      {leading}
+      <View style={{ flex: 1 }}>
+        <Text style={[type.body, selected && { color: palette.accentInk }]}>{label}</Text>
+        {sub ? <Text style={type.small}>{sub}</Text> : null}
+      </View>
+      {selected ? (
+        <Feather name="check-circle" size={22} color={palette.accent} />
+      ) : (
+        <View style={styles.radio} />
+      )}
+    </PressableScale>
+  );
+}
 
-  header: { marginBottom: 24 },
-  brand: { fontFamily: fontFamilies.display, fontSize: typography.size.display, fontWeight: typography.weight.extrabold, color: colors.textPrimary, letterSpacing: typography.tracking.wider },
-  brandSub: { fontFamily: fontFamilies.display, fontSize: typography.size.base, color: colors.textSecondary, marginTop: 4, letterSpacing: typography.tracking.wide },
+const styles = StyleSheet.create({
+  backChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingRight: space.md,
+    marginBottom: space.md,
+  },
+  backText: { color: palette.accentInk, fontSize: 15, fontWeight: '700', marginLeft: 2 },
 
-  selectTitle: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
+  shopBanner: { flexDirection: 'row', alignItems: 'flex-start' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 6 },
+  metaText: { color: palette.inkMuted, fontSize: 13.5, fontWeight: '500' },
 
-  errorBox: { backgroundColor: colors.dangerBg, padding: 12, borderRadius: 10, marginBottom: 16 },
-  errorText: { color: colors.dangerText, fontSize: 14 },
+  errorText: { color: palette.dangerRose, fontSize: 13, fontWeight: '600', marginTop: 8 },
 
-  shopsList: { gap: 12 },
-  shopCard: { backgroundColor: colors.white, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.border },
-  shopCardClosed: { backgroundColor: colors.bg, opacity: 0.7 },
-  shopCardContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  shopName: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-  statusOpen: { backgroundColor: colors.successBg },
-  statusClosed: { backgroundColor: colors.dangerBg },
-  statusText: { fontSize: 12, fontWeight: '700' },
-  shopHours: { fontSize: 13, color: colors.textSecondary },
-  shopClosedMsg: { fontSize: 13, color: colors.danger, fontStyle: 'italic' },
+  select: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    backgroundColor: palette.surfaceMuted,
+    borderWidth: 1.5,
+    borderColor: palette.line,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
+  },
+  selectText: { flex: 1, color: palette.ink, fontSize: 15.5, fontWeight: '600' },
 
-  emptyBox: { backgroundColor: colors.white, borderRadius: 12, padding: 32, alignItems: 'center' },
-  emptyText: { fontSize: 16, color: colors.textSecondary },
-  inlineLoader: { backgroundColor: colors.white, borderRadius: 12, padding: 32, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 12 },
+  reassure: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: space.lg },
+  reassureText: { color: palette.inkFaint, fontSize: 12.5, fontWeight: '500' },
 
-  activeSection: { marginTop: 24 },
-  activeSectionTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
-  activeEntry: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.brandPrimaryLight, padding: 14, borderRadius: 10, marginBottom: 8 },
-  activeToken: { fontFamily: fontFamilies.display, fontSize: typography.size.h2, fontWeight: typography.weight.extrabold, color: colors.brandPrimary, width: 60 },
-  activeName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  activeShop: { fontSize: 12, color: colors.textSecondary },
-  viewBtn: { marginLeft: 'auto', color: colors.brandPrimary, fontWeight: '600' },
+  // hero band
+  hero: { flexDirection: 'row', alignItems: 'center', gap: space.lg, marginTop: space.xs },
+  heroGlyph: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: palette.accentSoftLine,
+    backgroundColor: palette.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroDash: {
+    marginTop: space.lg,
+    borderBottomWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: palette.accentSoftLine,
+  },
 
-  backBtn: { marginBottom: 16 },
-  backBtnText: { fontSize: 16, color: colors.brandPrimary, fontWeight: '600' },
+  // shop list
+  shopCard: { gap: space.lg },
+  shopCardOpen: { borderLeftWidth: 4, borderLeftColor: palette.accent },
+  shopTop: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
+  shopInfo: { flex: 1 },
+  shopFoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: palette.line,
+    paddingTop: space.lg,
+  },
+  shopFootText: { color: palette.inkMuted, fontSize: 13.5, fontWeight: '600' },
 
-  selectedShopCard: { backgroundColor: colors.brandPrimary, borderRadius: 12, padding: 20, marginBottom: 20 },
-  selectedShopName: { fontSize: 22, fontWeight: '700', color: colors.white },
-  selectedShopHours: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+  // ticket rows (lists)
+  ticketRow: { flexDirection: 'row', alignItems: 'center', gap: space.lg },
+  tokenChip: {
+    minWidth: 56,
+    height: 44,
+    paddingHorizontal: space.md,
+    borderRadius: radius.md,
+    backgroundColor: palette.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tokenChipText: { color: palette.accentInk, fontSize: 17, fontWeight: '800', fontVariant: ['tabular-nums'] },
 
-  formCard: { backgroundColor: colors.white, borderRadius: 12, padding: 20, borderWidth: 1, borderColor: colors.border },
-  formTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 16 },
-  formLabel: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: 8 },
-  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14, fontSize: 16, marginBottom: 12 },
-  formError: { color: colors.danger, fontSize: 13, marginBottom: 12 },
-  joinBtn: { backgroundColor: colors.success, padding: 16, borderRadius: 10, alignItems: 'center' },
-  joinBtnDisabled: { backgroundColor: colors.textSecondary },
-  joinBtnText: { color: colors.white, fontSize: 16, fontWeight: '700' },
+  // ticket hero
+  ticketHead: { marginBottom: space.xl },
+  ticket: { overflow: 'visible' },
+  ticketServing: { backgroundColor: palette.liveTealSoft },
+  ticketTop: { alignItems: 'center', paddingTop: space['3xl'], paddingBottom: space['2xl'], paddingHorizontal: space['2xl'] },
+  ticketLabel: { ...type.label, marginTop: space.lg },
+  ticketNumber: { fontSize: 76, lineHeight: 80, color: palette.accent, marginTop: 4 },
+  ticketName: { ...type.heading, marginTop: space.xs },
 
-  // Barber selection styles
-  barberSection: { marginTop: 8, marginBottom: 12 },
-  barberDropdown: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 14 },
-  barberDropdownText: { fontSize: 15, color: colors.textPrimary },
-  barberDropdownArrow: { fontSize: 10, color: colors.textSecondary },
+  perforation: { height: 24, justifyContent: 'center' },
+  dashed: {
+    marginHorizontal: space['2xl'],
+    borderBottomWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: palette.lineStrong,
+  },
+  notch: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: palette.canvas,
+    top: 0,
+  },
+  notchLeft: { left: -12 },
+  notchRight: { right: -12 },
 
-  // Barber picker modal styles
-  pickerBox: { backgroundColor: colors.white, borderRadius: 16, padding: 20, width: '85%', maxWidth: 360, maxHeight: '70%' },
-  pickerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 16, textAlign: 'center' },
-  pickerList: { maxHeight: 300 },
-  pickerItem: { padding: 14, borderRadius: 8, marginBottom: 8, backgroundColor: colors.bg },
-  pickerItemSelected: { backgroundColor: colors.brandPrimary },
-  pickerItemText: { fontSize: 15, color: colors.textPrimary },
-  pickerItemTextSelected: { color: colors.white, fontWeight: '600' },
-  pickerCancel: { padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.surfaceAlt, marginTop: 12 },
-  pickerCancelText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  ticketBottom: { paddingHorizontal: space['2xl'], paddingTop: space['2xl'], paddingBottom: space['3xl'] },
+  ticketStat: { flexDirection: 'row', alignItems: 'center' },
+  aheadBlock: { alignItems: 'center', paddingRight: space.xl },
+  aheadNumber: { fontSize: 44, fontWeight: '800', color: palette.ink, fontVariant: ['tabular-nums'], letterSpacing: -1 },
+  aheadLabel: { ...type.small, marginTop: 2 },
+  divider: { width: 1, alignSelf: 'stretch', backgroundColor: palette.line },
+  servingBlock: { flex: 1, paddingLeft: space.xl },
+  servingText: { fontSize: 20, fontWeight: '800', color: palette.accentInk, fontVariant: ['tabular-nums'] },
 
-  statusHeader: { backgroundColor: colors.brandPrimary, padding: 20, paddingTop: 56 },
-  statusShopName: { fontSize: 20, fontWeight: '700', color: colors.white, textAlign: 'center' },
+  servingNow: { gap: space.lg },
+  servingNowRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  timerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+  },
+  timerText: { fontSize: 15, fontWeight: '800' },
 
-  tokenCard: { margin: 16, backgroundColor: colors.white, borderRadius: 16, padding: 24, alignItems: 'center', borderWidth: 2, borderColor: colors.border },
-  tokenCardServing: { backgroundColor: colors.successBg, borderColor: colors.success },
-  tokenLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: 8 },
-  tokenNumber: { fontFamily: fontFamilies.display, fontSize: 64, fontWeight: typography.weight.extrabold, color: colors.brandPrimary, letterSpacing: typography.tracking.wider },
-  tokenName: { fontSize: 18, color: colors.textPrimary, marginTop: 8 },
-  statusIndicator: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 8, borderRadius: 20 },
-  statusWaiting: { backgroundColor: colors.warningBg },
-  statusServing: { backgroundColor: colors.success },
-  statusIndicatorText: { fontSize: 14, fontWeight: '700', color: colors.warningText },
-  statusIndicatorTextServing: { color: colors.white },
-  servingInfo: { alignItems: 'center', marginTop: 12 },
-  goNowText: { fontSize: 15, color: colors.successText, fontWeight: '600', textAlign: 'center' },
-  
-  // Timer styles
-  timerBox: { marginTop: 16, backgroundColor: colors.warningBg, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderColor: colors.warningBorder },
-  timerBoxExpired: { backgroundColor: colors.dangerBg, borderColor: colors.dangerBg },
-  timerIcon: { fontSize: 24, marginRight: 10 },
-  timerText: { fontSize: 20, fontWeight: '800', color: colors.warningText },
-  timerTextExpired: { color: colors.dangerText },
-  serviceStartedBox: { marginTop: 12, backgroundColor: colors.successBg, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
-  serviceStartedText: { fontSize: 14, color: colors.successText, fontWeight: '600' },
-  
-  waitInfo: { marginTop: 16, alignItems: 'center' },
-  waitText: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
-  servingText: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
-
-  actions: { marginHorizontal: 16, marginTop: 16, gap: 12 },
-  leaveBtn: { backgroundColor: colors.dangerBg, padding: 14, borderRadius: 10, alignItems: 'center' },
-  leaveBtnText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
-  newEntryBtn: { backgroundColor: colors.brandPrimaryLight, padding: 14, borderRadius: 10, alignItems: 'center' },
-  newEntryBtnText: { color: colors.brandPrimary, fontSize: 15, fontWeight: '600' },
-
-  otherEntries: { marginHorizontal: 16, marginTop: 24 },
-  otherEntriesTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: 12 },
-  otherEntry: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, padding: 12, borderRadius: 8, marginBottom: 8 },
-  otherToken: { fontSize: 18, fontWeight: '700', color: colors.brandPrimary, width: 50 },
-  otherShop: { fontSize: 14, color: colors.textSecondary, flex: 1 },
-
-  logCard: { marginHorizontal: 16, marginTop: 20, marginBottom: 12, backgroundColor: colors.white, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 12 },
-  logHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  logTitle: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
-  logActions: { flexDirection: 'row', gap: 8 },
-  logActionBtn: { backgroundColor: colors.brandPrimaryLight, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  logActionBtnText: { color: colors.brandPrimary, fontSize: 12, fontWeight: '700' },
-  logClearBtn: { backgroundColor: colors.dangerBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  logClearBtnText: { color: colors.dangerText, fontSize: 12, fontWeight: '700' },
-  logHint: { marginTop: 8, marginBottom: 10, color: colors.textSecondary, fontSize: 12 },
-  logEmpty: { color: colors.textSecondary, fontSize: 12 },
-  logItem: { backgroundColor: colors.bg, borderRadius: 8, padding: 8, marginBottom: 8 },
-  logMeta: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
-  logMessage: { fontSize: 13, color: colors.textPrimary, marginTop: 2 },
-  logDetails: { fontSize: 11, color: colors.textPrimary, marginTop: 4 },
-
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalBox: { backgroundColor: colors.white, borderRadius: 16, padding: 24, width: '85%', maxWidth: 360 },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, marginBottom: 8, textAlign: 'center' },
-  modalMsg: { fontSize: 15, color: colors.textSecondary, marginBottom: 20, textAlign: 'center' },
-  modalBtns: { flexDirection: 'row', gap: 12 },
-  modalCancel: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.success },
-  modalConfirm: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: colors.danger },
-  modalCancelText: { color: colors.white, fontSize: 15, fontWeight: '600' },
-  modalConfirmText: { color: colors.white, fontSize: 15, fontWeight: '600' },
+  // picker
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingVertical: space.md,
+    paddingHorizontal: space.md,
+    borderRadius: radius.md,
+    marginBottom: space.xs,
+  },
+  pickerRowSelected: { backgroundColor: palette.accentSoft },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: palette.lineStrong },
 });
