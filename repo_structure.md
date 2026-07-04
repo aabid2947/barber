@@ -53,25 +53,25 @@ Snapshot of the current project tree.
 |   |   |   |   |   |   |-- ic_launcher.xml
 |   |   |   |   |   |   |-- ic_launcher_round.xml
 |   |   |   |   |   |-- mipmap-hdpi/
-|   |   |   |   |   |   |-- ic_launcher.webp
-|   |   |   |   |   |   |-- ic_launcher_foreground.webp
-|   |   |   |   |   |   |-- ic_launcher_round.webp
+|   |   |   |   |   |   |-- ic_launcher.png
+|   |   |   |   |   |   |-- ic_launcher_foreground.png
+|   |   |   |   |   |   |-- ic_launcher_round.png
 |   |   |   |   |   |-- mipmap-mdpi/
-|   |   |   |   |   |   |-- ic_launcher.webp
-|   |   |   |   |   |   |-- ic_launcher_foreground.webp
-|   |   |   |   |   |   |-- ic_launcher_round.webp
+|   |   |   |   |   |   |-- ic_launcher.png
+|   |   |   |   |   |   |-- ic_launcher_foreground.png
+|   |   |   |   |   |   |-- ic_launcher_round.png
 |   |   |   |   |   |-- mipmap-xhdpi/
-|   |   |   |   |   |   |-- ic_launcher.webp
-|   |   |   |   |   |   |-- ic_launcher_foreground.webp
-|   |   |   |   |   |   |-- ic_launcher_round.webp
+|   |   |   |   |   |   |-- ic_launcher.png
+|   |   |   |   |   |   |-- ic_launcher_foreground.png
+|   |   |   |   |   |   |-- ic_launcher_round.png
 |   |   |   |   |   |-- mipmap-xxhdpi/
-|   |   |   |   |   |   |-- ic_launcher.webp
-|   |   |   |   |   |   |-- ic_launcher_foreground.webp
-|   |   |   |   |   |   |-- ic_launcher_round.webp
+|   |   |   |   |   |   |-- ic_launcher.png
+|   |   |   |   |   |   |-- ic_launcher_foreground.png
+|   |   |   |   |   |   |-- ic_launcher_round.png
 |   |   |   |   |   |-- mipmap-xxxhdpi/
-|   |   |   |   |   |   |-- ic_launcher.webp
-|   |   |   |   |   |   |-- ic_launcher_foreground.webp
-|   |   |   |   |   |   |-- ic_launcher_round.webp
+|   |   |   |   |   |   |-- ic_launcher.png
+|   |   |   |   |   |   |-- ic_launcher_foreground.png
+|   |   |   |   |   |   |-- ic_launcher_round.png
 |   |   |   |   |   |-- values/
 |   |   |   |   |   |   |-- colors.xml
 |   |   |   |   |   |   |-- strings.xml
@@ -89,6 +89,9 @@ Snapshot of the current project tree.
 |   |-- index.tsx
 |   |-- _layout.tsx
 |-- assets/
+|   |-- DarkThemeSplashScreen.jpeg
+|   |-- LightThemeSplashScreen.jpeg
+|   |-- applogo.jpeg
 |   |-- applogo.jpg
 |   |-- fonts/
 |   |   |-- SpaceMono-Regular.ttf
@@ -113,6 +116,7 @@ Snapshot of the current project tree.
 |   |-- WebCustomerView.tsx
 |-- lib/
 |   |-- backendUrl.ts
+|   |-- deviceId.ts
 |   |-- fetchWithRetry.ts
 |   |-- mobileNotifications.ts
 |   |-- notificationDebug.ts

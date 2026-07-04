@@ -35,26 +35,41 @@ export function TextField({
   style,
 }: TextFieldProps) {
   const [focused, setFocused] = useState(false);
+  const [reveal, setReveal] = useState(false);
+  const isSecure = !!secureTextEntry;
   return (
     <View style={style}>
       {label ? <Text style={[type.label, styles.label]}>{label}</Text> : null}
-      <TextInput
-        style={[
-          styles.input,
-          focused && styles.inputFocused,
-        ]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={palette.inkFaint}
-        keyboardType={keyboardType}
-        secureTextEntry={secureTextEntry}
-        autoCapitalize={autoCapitalize}
-        maxLength={maxLength}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        selectionColor={palette.accent}
-      />
+      <View style={styles.inputWrap}>
+        <TextInput
+          style={[
+            styles.input,
+            focused && styles.inputFocused,
+            isSecure && styles.inputSecure,
+          ]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={palette.inkFaint}
+          keyboardType={keyboardType}
+          secureTextEntry={isSecure && !reveal}
+          autoCapitalize={autoCapitalize}
+          maxLength={maxLength}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          selectionColor={palette.accent}
+        />
+        {isSecure ? (
+          <PressableScale
+            onPress={() => setReveal((r) => !r)}
+            style={styles.eyeBtn}
+            hitSlop={10}
+            accessibilityLabel={reveal ? 'Hide password' : 'Show password'}
+          >
+            <Feather name={reveal ? 'eye-off' : 'eye'} size={20} color={palette.inkMuted} />
+          </PressableScale>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -92,6 +107,17 @@ export function Stepper({ label, value, onChange, min = 1, max = 10, suffix, off
 
 const styles = StyleSheet.create({
   label: { marginBottom: 8 },
+  inputWrap: { position: 'relative', justifyContent: 'center' },
+  eyeBtn: {
+    position: 'absolute',
+    right: 6,
+    top: 0,
+    bottom: 0,
+    width: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inputSecure: { paddingRight: 52 },
   input: {
     height: 54,
     borderRadius: radius.md,

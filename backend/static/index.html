@@ -360,6 +360,22 @@
         let currentEntry = null;
         let pollInterval = null;
         let lastDataHash = '';
+
+        // Persistent per-device id so the backend can enforce booking limits
+        // (one active token per shop, max 2 across shops).
+        function getDeviceId() {
+            let id = localStorage.getItem('device_id');
+            if (!id) {
+                id = (window.crypto && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                        const r = Math.random() * 16 | 0;
+                        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                    });
+                localStorage.setItem('device_id', id);
+            }
+            return id;
+        }
         
         // DOM Elements
         const shopNameEl = document.getElementById('shopName');
@@ -505,7 +521,7 @@
                 const response = await fetch(`${API_BASE}/queue/join`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ shopId: SHOP_ID, name, addedBy: 'customer' }),
+                    body: JSON.stringify({ shopId: SHOP_ID, name, addedBy: 'customer', deviceId: getDeviceId() }),
                     signal: controller.signal
                 });
 

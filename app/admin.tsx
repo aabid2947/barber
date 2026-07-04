@@ -438,7 +438,7 @@ export default function Admin() {
         <Toast message={toast} />
         <Screen>
           <ScreenHeader
-            eyebrow="Quevix · Smart Queue"
+            eyebrow="My Salon Time · Smart Queue"
             title="Admin Panel"
             subtitle="Sign in to manage shops, barbers and live queues."
           />
@@ -819,7 +819,7 @@ export default function Admin() {
       <Toast message={toast} />
       <Screen>
         <ScreenHeader
-          eyebrow="Quevix · Admin"
+          eyebrow="My Salon Time · Admin"
           title="Manage"
           subtitle="Open hours, chairs, barbers and live queue controls."
           right={<TextButton label="Logout" icon="log-out" onPress={handleLogout} />}

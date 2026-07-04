@@ -46,7 +46,7 @@ export async function ensureForegroundNotificationHandler() {
   if (!firebaseMessaging) return;
 
   firebaseMessaging().onMessage(async (remoteMessage: any) => {
-    const title = remoteMessage?.notification?.title || 'Quevix';
+    const title = remoteMessage?.notification?.title || 'My Salon Time';
     const body = remoteMessage?.notification?.body || '';
     console.log('[FCM] >>> FOREGROUND message received:', JSON.stringify({
       title, body, data: remoteMessage?.data,

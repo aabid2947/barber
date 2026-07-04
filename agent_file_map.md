@@ -26,7 +26,7 @@ This map gives short, practical summaries so agents can quickly understand where
 ## Frontend Routes (`app/`)
 
 - `app/_layout.tsx`: Global app shell — Expo Router `Tabs` rendered through the custom `FloatingTabBar` (Customer / Barber / Admin), wrapped in GestureHandlerRootView + SafeAreaProvider + KeyboardProvider, plus the FCM foreground-handler / permission init hooks.
-- `app/index.tsx`: Customer queue screen (shop selection, join queue, status polling, leave/rejoin, local persistence).
+- `app/index.tsx`: Customer queue screen (shop selection, join queue, status polling, leave/rejoin, local persistence). Enforces booking rules — one active token per shop, max 2 shops — via a persistent deviceId plus the local ticket list.
 - `app/dashboard.tsx`: Barber dashboard (shop login, queue operations, polling, push registration, filters).
 - `app/admin.tsx`: Admin panel (admin login, shop CRUD, barber management, stats, reset/remove token actions).
 - `app/+html.tsx`: Web HTML wrapper for Expo Router with scroll reset and DOM-level layout fixes.
@@ -46,7 +46,7 @@ The "Workbench" warm-bronze line-art design system that all three screens are bu
 - `src/components/ui/Card.tsx`: White surface defined by a hairline bronze border with restrained warm elevation; supports tint/borderColor/level/padding.
 - `src/components/ui/Pill.tsx`: Soft, high-contrast status chip with tone (neutral/accent/teal/amber/rose/green) and optional dot.
 - `src/components/ui/Screen.tsx`: Screen scaffold (`Screen`, `ScreenHeader` with bronze eyebrow + rule, `Section` with bronze marker) handling safe-area top padding and floating-tab-bar clearance.
-- `src/components/ui/Field.tsx`: `TextField` (focus-aware inset input) and `Stepper` (−/＋ numeric control with OFF state) form primitives.
+- `src/components/ui/Field.tsx`: `TextField` (focus-aware inset input; shows a tap-to-reveal eye toggle when `secureTextEntry` is set) and `Stepper` (−/＋ numeric control with OFF state) form primitives.
 - `src/components/ui/StatTile.tsx`: Compact white metric tile — big tabular numeral + tracked label.
 - `src/components/ui/Segmented.tsx`: Horizontal pill selector with accent-tinted active state.
 - `src/components/ui/Sheet.tsx`: `BottomSheet` (animated modal sheet) and `ConfirmSheet` (confirm/cancel, optional destructive) — replaces the old in-screen `Modal`s.
@@ -59,6 +59,7 @@ The "Workbench" warm-bronze line-art design system that all three screens are bu
 ## Shared Library (`lib/`)
 
 - `lib/backendUrl.ts`: Resolves backend base URL from env, Expo host, and Android defaults.
+- `lib/deviceId.ts`: Returns a stable per-install UUID (AsyncStorage-backed) sent with queue joins to enforce booking limits.
 - `lib/fetchWithRetry.ts`: Fetch wrapper adding per-request timeout (AbortController) and exponential-backoff retries for idempotent GETs only; mutations get timeouts but no auto-retry to avoid duplicates.
 - `lib/mobileNotifications.ts`: FCM registration/unregistration, permission flow, and foreground/background handlers.
 - `lib/notificationDebug.ts`: AsyncStorage-based debug log store for notification troubleshooting.
@@ -68,7 +69,7 @@ The "Workbench" warm-bronze line-art design system that all three screens are bu
 
 - `backend/.gitignore`: Backend-specific ignore rules (contains `.vercel`, service-account ignore, plus an extra command line string).
 - `backend/requirements.txt`: Python dependency list (FastAPI, Motor/PyMongo, Firebase Admin, etc.).
-- `backend/server.py`: Main FastAPI app with queue/shop/barber APIs, MongoDB models, and notification dispatch logic.
+- `backend/server.py`: Main FastAPI app with queue/shop/barber APIs, MongoDB models, and notification dispatch logic. Join enforces booking dedup by deviceId (one active token per shop, max 2 active); queue-status counts are scoped per shop.
 - `backend/vercel.json`: Vercel build and route config for Python API + static file serving.
 - `backend/static/index.html`: Customer-facing QR-scan queue web page with join/status polling, leave, and rejoin-after-completion flow.
 
@@ -115,21 +116,21 @@ The "Workbench" warm-bronze line-art design system that all three screens are bu
 - `android/app/src/main/res/drawable/rn_edit_text_material.xml`: Patched EditText drawable selector to avoid known RN crash.
 - `android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`: Adaptive launcher icon definition.
 - `android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml`: Adaptive round launcher icon definition.
-- `android/app/src/main/res/mipmap-hdpi/ic_launcher.webp`: HDPI launcher icon asset.
-- `android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.webp`: HDPI launcher foreground asset.
-- `android/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp`: HDPI round launcher icon asset.
-- `android/app/src/main/res/mipmap-mdpi/ic_launcher.webp`: MDPI launcher icon asset.
-- `android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.webp`: MDPI launcher foreground asset.
-- `android/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp`: MDPI round launcher icon asset.
-- `android/app/src/main/res/mipmap-xhdpi/ic_launcher.webp`: XHDPI launcher icon asset.
-- `android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.webp`: XHDPI launcher foreground asset.
-- `android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp`: XHDPI round launcher icon asset.
-- `android/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp`: XXHDPI launcher icon asset.
-- `android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp`: XXHDPI launcher foreground asset.
-- `android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp`: XXHDPI round launcher icon asset.
-- `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp`: XXXHDPI launcher icon asset.
-- `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.webp`: XXXHDPI launcher foreground asset.
-- `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp`: XXXHDPI round launcher icon asset.
+- `android/app/src/main/res/mipmap-hdpi/ic_launcher.png`: HDPI launcher icon asset.
+- `android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png`: HDPI launcher foreground asset.
+- `android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png`: HDPI round launcher icon asset.
+- `android/app/src/main/res/mipmap-mdpi/ic_launcher.png`: MDPI launcher icon asset.
+- `android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png`: MDPI launcher foreground asset.
+- `android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png`: MDPI round launcher icon asset.
+- `android/app/src/main/res/mipmap-xhdpi/ic_launcher.png`: XHDPI launcher icon asset.
+- `android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png`: XHDPI launcher foreground asset.
+- `android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png`: XHDPI round launcher icon asset.
+- `android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png`: XXHDPI launcher icon asset.
+- `android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png`: XXHDPI launcher foreground asset.
+- `android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png`: XXHDPI round launcher icon asset.
+- `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png`: XXXHDPI launcher icon asset.
+- `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png`: XXXHDPI launcher foreground asset.
+- `android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png`: XXXHDPI round launcher icon asset.
 - `android/app/src/main/res/values/colors.xml`: Android color resources (theme + splash/icon background).
 - `android/app/src/main/res/values/strings.xml`: App name and Expo system UI string resources.
 - `android/app/src/main/res/values/styles.xml`: App theme definition and status/input styling.
@@ -142,14 +143,17 @@ The "Workbench" warm-bronze line-art design system that all three screens are bu
 
 ## App Assets (`assets/`)
 
-- `assets/applogo.jpg`: Branded app logo image.
+- `assets/applogo.jpg`: Older branded app logo image (superseded by applogo.jpeg).
+- `assets/applogo.jpeg`: Circular gold-badge "My Salon Time" logo — source for the Android launcher icon.
+- `assets/DarkThemeSplashScreen.jpeg`: Dark-theme splash artwork (logo on black).
+- `assets/LightThemeSplashScreen.jpeg`: Light-theme splash artwork (logo on light background).
 - `assets/fonts/SpaceMono-Regular.ttf`: Included custom font asset.
-- `assets/images/adaptive-icon.png`: Source image for Android adaptive icon.
+- `assets/images/adaptive-icon.png`: Android adaptive-icon foreground (My Salon Time badge, padded on transparent).
 - `assets/images/app-image.png`: General app visual/branding image.
 - `assets/images/favicon.png`: Web favicon image.
-- `assets/images/icon.png`: Primary app icon source image.
+- `assets/images/icon.png`: Primary app icon source (My Salon Time badge).
 - `assets/images/partial-react-logo.png`: Template/starter React graphic asset.
 - `assets/images/react-logo.png`: Template/starter React logo asset.
 - `assets/images/react-logo@2x.png`: 2x density React logo asset.
 - `assets/images/react-logo@3x.png`: 3x density React logo asset.
-- `assets/images/splash-image.png`: Splash screen image used by Expo splash plugin.
+- `assets/images/splash-image.png`: Splash image (My Salon Time light logo) used by the Expo splash plugin.

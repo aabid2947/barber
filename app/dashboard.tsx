@@ -209,7 +209,7 @@ export default function Dashboard() {
       })();
 
       fetchDashboard();
-      const interval = setInterval(fetchDashboard, 15000); // Performance: 15s polling
+      const interval = setInterval(fetchDashboard, 8000); // Auto-refresh: 8s polling
 
       // Always re-register FCM token on dashboard load (token changes on app rebuild)
       console.log(`[FCM] Dashboard loaded for shop=${shopId}, re-registering barber push token...`);
@@ -688,7 +688,7 @@ export default function Dashboard() {
         <Toast message={toast} />
         <Screen>
           <ScreenHeader
-            eyebrow="Quevix · Smart Queue"
+            eyebrow="My Salon Time · Smart Queue"
             title="Barber dashboard"
             subtitle="Sign in to manage your floor."
           />
@@ -765,7 +765,7 @@ export default function Dashboard() {
       <Toast message={toast} />
       <Screen>
         <ScreenHeader
-          eyebrow={`Quevix · ID ${shopId}`}
+          eyebrow={`My Salon Time · ID ${shopId}`}
           title={shopName || 'Dashboard'}
           right={<Button label="Logout" variant="secondary" size="sm" icon="log-out" onPress={handleLogout} />}
         />

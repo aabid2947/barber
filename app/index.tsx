@@ -1,10 +1,11 @@
 import { Feather } from '@expo/vector-icons';
-import React, { useState, useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerMobilePushDevice } from '../lib/mobileNotifications';
 import { getBackendBaseUrl } from '../lib/backendUrl';
 import { fetchWithRetry } from '../lib/fetchWithRetry';
+import { getDeviceId } from '../lib/deviceId';
 import {
   Avatar,
   BottomSheet,
@@ -24,11 +25,9 @@ import { useNow } from '../src/utils/time';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const MY_ENTRIES_KEY = '@my_queue_entries';
-const JOIN_HISTORY_KEY = '@join_history';
 const CUSTOMER_PUSH_TOKEN_KEY = '@customer_push_token';
 const SHOPS_CACHE_KEY = '@shops_cache_v1';
-const MAX_JOINS = 2;
-const COOLDOWN_MIN = 10;
+const MAX_JOINS = 2; // Max active queues a device may hold across shops.
 
 interface Shop {
   shopId: string;
@@ -90,18 +89,20 @@ export default function Index() {
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
+  // Ref so the status poll always calls the freshest refreshStatus without resubscribing
+  // every tick (the old effect reset its 15s timer on every queueStatus change).
+  const refreshRef = useRef<() => void>(() => {});
+
   useEffect(() => {
     fetchShops();
     loadMyEntries();
   }, []);
 
   useEffect(() => {
-    let interval: any;
-    if (joined && queueStatus) {
-      interval = setInterval(refreshStatus, 15000); // Performance: 15s polling
-    }
-    return () => { if (interval) clearInterval(interval); };
-  }, [joined, queueStatus]);
+    if (!joined) return;
+    const interval = setInterval(() => refreshRef.current(), 6000); // Auto-refresh: 6s polling
+    return () => clearInterval(interval);
+  }, [joined]);
 
   // Fetch all shops — show cached list instantly, then refresh in the background.
   const fetchShops = async () => {
@@ -226,28 +227,35 @@ export default function Index() {
       return;
     }
 
-    // Rate limit check
-    try {
-      const historyStr = await AsyncStorage.getItem(JOIN_HISTORY_KEY);
-      let history = historyStr ? JSON.parse(historyStr) : [];
-      const nowDate = new Date();
-      const cutoff = new Date(nowDate.getTime() - COOLDOWN_MIN * 60 * 1000);
-      history = history.filter((ts: string) => new Date(ts) > cutoff);
-      if (history.length >= MAX_JOINS) {
-        const oldest = new Date(history[0]);
-        const remaining = Math.ceil(COOLDOWN_MIN - (nowDate.getTime() - oldest.getTime()) / 60000);
-        setErrorMessage(`Joined ${MAX_JOINS} times already. Wait ${remaining} min.`);
-        return;
-      }
-    } catch (e) { /* ignore */ }
+    // Booking rules — checked instantly against this device's own active tickets:
+    //  • one active ticket per shop, and
+    //  • at most MAX_JOINS active tickets across shops.
+    // Leaving a queue prunes myEntries, which frees the slot to join elsewhere.
+    // The backend re-checks the same rules by deviceId so they can't be bypassed.
+    if (myEntries.some((e) => e.shopId === selectedShop.shopId)) {
+      Alert.alert(
+        'Already in this queue',
+        `You already have an open token at ${selectedShop.name}. You can only book once per shop.`
+      );
+      return;
+    }
+    if (myEntries.length >= MAX_JOINS) {
+      Alert.alert(
+        'You already have open queues',
+        `You can be in at most ${MAX_JOINS} shops at a time. Leave a queue to join another.`
+      );
+      return;
+    }
 
     setLoading(true);
     try {
+      const deviceId = await getDeviceId();
       const joinUrl = `${EXPO_PUBLIC_BACKEND_URL}/api/queue/join`;
       const joinBody = {
         name: name.trim(),
         shopId: selectedShop.shopId,
-        barberId: selectedBarber || null
+        barberId: selectedBarber || null,
+        deviceId,
       };
       console.log(`[JOIN] Sending join request to: ${joinUrl}`);
       console.log(`[JOIN] Body: ${JSON.stringify(joinBody)}`);
@@ -283,11 +291,6 @@ export default function Index() {
         (async () => {
           try {
             await AsyncStorage.setItem(MY_ENTRIES_KEY, JSON.stringify(updatedEntries));
-
-            const historyStr = await AsyncStorage.getItem(JOIN_HISTORY_KEY);
-            const history = historyStr ? JSON.parse(historyStr) : [];
-            history.push(new Date().toISOString());
-            await AsyncStorage.setItem(JOIN_HISTORY_KEY, JSON.stringify(history));
           } catch (persistError) {
             console.error('[JOIN] Persist error:', persistError);
           }
@@ -314,6 +317,10 @@ export default function Index() {
         return;
       } else if (res.status === 403) {
         setErrorMessage('Shop is currently closed');
+      } else if (res.status === 409) {
+        // Backend rejected a duplicate / over-limit booking.
+        const err = await res.json().catch(() => ({} as any));
+        Alert.alert('Already in a queue', err.detail || 'You already have an open queue.');
       } else {
         setErrorMessage('Failed to join. Try again.');
       }
@@ -348,6 +355,9 @@ export default function Index() {
       }
     } catch (e) { console.error('Refresh error:', e); }
   };
+
+  // Keep the interval calling the latest closure (fresh queueStatus / myEntries).
+  refreshRef.current = refreshStatus;
 
   const confirmLeaveQueue = async () => {
     if (!queueStatus || leaving) return;
@@ -619,7 +629,7 @@ export default function Index() {
   return (
     <Screen>
       <ScreenHeader
-        eyebrow="Quevix · Front desk"
+        eyebrow="My Salon Time · Front desk"
         title="Find your chair"
         subtitle="Join a barbershop queue and track your turn in real time."
       />

@@ -132,6 +132,7 @@ class QueueEntry(BaseModel):
     chairNumber: Optional[int] = None  # assigned when serving
     addedBy: str = "customer"  # "customer" or "barber"
     barberId: Optional[str] = None  # For barber-specific queues
+    deviceId: Optional[str] = None  # Persistent per-install id for booking dedup
     serviceStartedAt: Optional[datetime] = None  # When START button pressed
     expiresAt: Optional[datetime] = None  # Timer expiry for serving customers
     createdAt: datetime = Field(default_factory=datetime.utcnow)
@@ -144,6 +145,7 @@ class JoinQueueRequest(BaseModel):
     addedBy: Optional[str] = "customer"
     shopId: Optional[str] = "default"  # Multi-shop support
     barberId: Optional[str] = None  # For barber-specific queues
+    deviceId: Optional[str] = None  # Persistent per-install id for booking dedup
 
 
 class RegisterDeviceRequest(BaseModel):
@@ -166,8 +168,8 @@ class NotificationTestRequest(BaseModel):
     token: Optional[str] = None
     userType: Optional[str] = None
     shopId: Optional[str] = None
-    title: str = "Quevix Test"
-    body: str = "Test notification from Quevix"
+    title: str = "My Salon Time Test"
+    body: str = "Test notification from My Salon Time"
     data: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -241,7 +243,7 @@ async def send_fcm_notifications(messages: List[Dict[str, Any]]) -> Dict[str, An
         fcm_message = messaging.Message(
             token=token,
             notification=messaging.Notification(
-                title=msg.get("title", "Quevix"),
+                title=msg.get("title", "My Salon Time"),
                 body=msg.get("body", ""),
             ),
             data={k: str(v) for k, v in msg.get("data", {}).items()},
@@ -1692,6 +1694,28 @@ async def join_queue(request: JoinQueueRequest, background_tasks: BackgroundTask
 
     today = get_today_key()
 
+    # Booking rules for self-service customers (identified by a persistent deviceId):
+    #  • at most one active (waiting/serving) ticket per shop, and
+    #  • at most 2 active tickets across all shops.
+    # Barber-added walk-ins carry no deviceId and are intentionally exempt.
+    if request.deviceId:
+        active_status = {"$in": ["waiting", "serving"]}
+        same_shop = await db.queue_entries.find_one({
+            "dateKey": today,
+            "shopId": shop_id,
+            "deviceId": request.deviceId,
+            "status": active_status,
+        })
+        if same_shop:
+            raise HTTPException(status_code=409, detail="You already have an open token in this shop.")
+        active_count = await db.queue_entries.count_documents({
+            "dateKey": today,
+            "deviceId": request.deviceId,
+            "status": active_status,
+        })
+        if active_count >= 2:
+            raise HTTPException(status_code=409, detail="You already have 2 open queues. Leave one to join another.")
+
     # Run independent reads concurrently: next-token lookup, people-ahead count, serving list.
     # people_ahead / serving include this entry's effect only after insert; we compute them here
     # and adjust after the insert to keep the response accurate without extra round trips.
@@ -1714,7 +1738,8 @@ async def join_queue(request: JoinQueueRequest, background_tasks: BackgroundTask
         phone=request.phone,
         status="waiting",
         addedBy=request.addedBy or "customer",
-        barberId=request.barberId
+        barberId=request.barberId,
+        deviceId=request.deviceId,
     )
     await db.queue_entries.insert_one(entry.dict())
 
@@ -1758,18 +1783,21 @@ async def get_status(entry_id: str):
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
 
-    # Serving now
+    entry_shop_id = entry.get("shopId", "default")
+
+    # Serving now — scoped to this customer's shop (tokens are per-shop).
     serving_entries = await db.queue_entries.find(
-        {"dateKey": entry["dateKey"], "status": "serving"}
+        {"dateKey": entry["dateKey"], "shopId": entry_shop_id, "status": "serving"}
     ).sort("tokenNumber", 1).to_list(100)
     serving_now = [e["tokenNumber"] for e in serving_entries]
 
-    # People ahead - only count waiting tokens before user
+    # People ahead — only waiting tokens before this user, in the same shop.
     if entry["status"] == "serving":
         people_ahead = 0
     elif entry["status"] == "waiting":
         people_ahead = await db.queue_entries.count_documents({
             "dateKey": entry["dateKey"],
+            "shopId": entry_shop_id,
             "tokenNumber": {"$lt": entry["tokenNumber"]},
             "status": "waiting"
         })
@@ -2162,6 +2190,11 @@ async def startup_migration():
     await db.device_tokens.create_index(
         [("enabled", ASCENDING), ("userType", ASCENDING), ("shopId", ASCENDING), ("barberId", ASCENDING)],
         name="device_tokens_lookup"
+    )
+    # Supports join-time booking dedup lookups (one active token per shop, max 2 across shops).
+    await db.queue_entries.create_index(
+        [("dateKey", ASCENDING), ("deviceId", ASCENDING), ("status", ASCENDING)],
+        name="queue_device_dedup"
     )
 
     # Clear closedDays for all existing shops (fix Tuesday closure issue)

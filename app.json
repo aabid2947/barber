@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Quevix",
+    "name": "My Salon Time",
     "slug": "quevix-salon",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -15,7 +15,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#1A1A2E"
+        "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.quevix",
@@ -36,7 +36,7 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#1A1A2E"
+          "backgroundColor": "#FFFFFF"
         }
       ]
     ],
